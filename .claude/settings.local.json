@@ -18,7 +18,8 @@
       "Bash(taskkill //F //PID 42236 //T)",
       "Bash(taskkill //F //PID 42508 //T)",
       "Bash(netsh advfirewall:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(curl:*)"
     ]
   }
 }
