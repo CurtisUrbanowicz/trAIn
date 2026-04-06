@@ -1,0 +1,635 @@
+import { supabase } from "./supabase";
+import { getWeekStartMondayUtc } from "./context";
+
+export type ToolContext = {
+  athleteId: string;
+  localDate: string;
+};
+
+function addDays(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(y!, m! - 1, d!));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDateLabel(ymd: string): string {
+  const days = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const date = new Date(ymd + "T00:00:00Z");
+  return `${ymd} (${days[date.getUTCDay()]})`;
+}
+
+// ── Retrieval executors ─────────────────────────────────────────
+
+async function getHistory(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const table = input.table as string;
+  const dateFrom = input.date_from as string | undefined;
+  const dateTo = input.date_to as string | undefined;
+  const limit = (input.limit as number) ?? 20;
+
+  switch (table) {
+    case "sets":
+      return getHistorySets(input, context, dateFrom, dateTo, limit);
+    case "runs":
+      return getHistoryRuns(input, context, dateFrom, dateTo, limit);
+    case "daily_summaries":
+      return getHistorySummaries(context, dateFrom, dateTo, limit);
+    case "readiness":
+      return getHistoryReadiness(context, dateFrom, dateTo, limit);
+    default:
+      return `Unknown table: ${table}`;
+  }
+}
+
+async function getHistorySets(
+  input: Record<string, unknown>,
+  context: ToolContext,
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  limit: number
+): Promise<string> {
+  const exercise = input.exercise as string | undefined;
+
+  // Query 1: get distinct dates matching filters
+  let datesQuery = supabase
+    .from("sets")
+    .select("date")
+    .eq("athlete_id", context.athleteId)
+    .order("date", { ascending: false });
+
+  if (exercise) datesQuery = datesQuery.eq("exercise", exercise);
+  if (dateFrom) datesQuery = datesQuery.gte("date", dateFrom);
+  if (dateTo) datesQuery = datesQuery.lte("date", dateTo);
+
+  const { data: dateRows, error: dateError } = await datesQuery;
+  if (dateError) return `Error querying sets dates: ${dateError.message}`;
+  if (!dateRows || dateRows.length === 0) return "No sets found.";
+
+  const distinctDates = Array.from(
+    new Set(dateRows.map((r: { date: string }) => r.date))
+  ).slice(0, limit);
+
+  // Query 2: fetch all rows for those dates
+  let setsQuery = supabase
+    .from("sets")
+    .select("id, date, exercise, weight_kg, reps, rir, notes, timestamp")
+    .eq("athlete_id", context.athleteId)
+    .in("date", distinctDates)
+    .order("date", { ascending: false })
+    .order("timestamp", { ascending: true });
+
+  if (exercise) setsQuery = setsQuery.eq("exercise", exercise);
+
+  const { data: sets, error: setsError } = await setsQuery;
+  if (setsError) return `Error querying sets: ${setsError.message}`;
+  if (!sets || sets.length === 0) return "No sets found.";
+
+  // Group by date
+  const grouped = new Map<string, typeof sets>();
+  for (const row of sets) {
+    const existing = grouped.get(row.date);
+    if (existing) {
+      existing.push(row);
+    } else {
+      grouped.set(row.date, [row]);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const date of distinctDates) {
+    const rows = grouped.get(date);
+    if (!rows) continue;
+    lines.push(formatDateLabel(date) + ":");
+    for (const r of rows) {
+      let line = `  ${r.exercise}: ${r.weight_kg}kg × ${r.reps}`;
+      if (r.rir != null) line += ` @ RIR ${r.rir}`;
+      if (r.notes) line += ` — ${r.notes}`;
+      line += ` [id: ${r.id}]`;
+      lines.push(line);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function getHistoryRuns(
+  input: Record<string, unknown>,
+  context: ToolContext,
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  limit: number
+): Promise<string> {
+  const runType = input.run_type as string | undefined;
+
+  let query = supabase
+    .from("runs")
+    .select("id, date, distance_km, duration_min, avg_pace, avg_hr, run_type, notes")
+    .eq("athlete_id", context.athleteId)
+    .order("date", { ascending: false })
+    .limit(limit);
+
+  if (runType) query = query.eq("run_type", runType);
+  if (dateFrom) query = query.gte("date", dateFrom);
+  if (dateTo) query = query.lte("date", dateTo);
+
+  const { data, error } = await query;
+  if (error) return `Error querying runs: ${error.message}`;
+  if (!data || data.length === 0) return "No runs found.";
+
+  const lines: string[] = [];
+  for (const r of data) {
+    let line = `${formatDateLabel(r.date)}: ${r.distance_km}km ${r.run_type}`;
+    if (r.duration_min != null) line += `, ${r.duration_min}min`;
+    if (r.avg_pace) line += `, ${r.avg_pace}/km`;
+    if (r.avg_hr != null) line += `, HR ${r.avg_hr}`;
+    if (r.notes) line += ` — ${r.notes}`;
+    line += ` [id: ${r.id}]`;
+    lines.push(line);
+  }
+
+  return lines.join("\n");
+}
+
+async function getHistorySummaries(
+  context: ToolContext,
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  limit: number
+): Promise<string> {
+  let query = supabase
+    .from("daily_summaries")
+    .select("date, summary")
+    .eq("athlete_id", context.athleteId)
+    .order("date", { ascending: false })
+    .limit(limit);
+
+  if (dateFrom) query = query.gte("date", dateFrom);
+  if (dateTo) query = query.lte("date", dateTo);
+
+  const { data, error } = await query;
+  if (error) return `Error querying summaries: ${error.message}`;
+  if (!data || data.length === 0) return "No summaries found.";
+
+  return data
+    .map((r) => `${formatDateLabel(r.date)}: ${r.summary}`)
+    .join("\n\n");
+}
+
+async function getHistoryReadiness(
+  context: ToolContext,
+  dateFrom: string | undefined,
+  dateTo: string | undefined,
+  limit: number
+): Promise<string> {
+  let query = supabase
+    .from("readiness")
+    .select("date, hrv, rhr, recovery_score, sleep_hours")
+    .eq("athlete_id", context.athleteId)
+    .order("date", { ascending: false })
+    .order("timestamp", { ascending: false })
+    .limit(limit);
+
+  if (dateFrom) query = query.gte("date", dateFrom);
+  if (dateTo) query = query.lte("date", dateTo);
+
+  const { data, error } = await query;
+  if (error) return `Error querying readiness: ${error.message}`;
+  if (!data || data.length === 0) return "No readiness data found.";
+
+  const lines: string[] = [];
+  for (const r of data) {
+    const parts: string[] = [];
+    if (r.hrv != null) parts.push(`HRV ${r.hrv}`);
+    if (r.rhr != null) parts.push(`RHR ${r.rhr}`);
+    if (r.recovery_score != null) parts.push(`Recovery ${r.recovery_score}`);
+    if (r.sleep_hours != null) parts.push(`Sleep ${r.sleep_hours}h`);
+    lines.push(`${formatDateLabel(r.date)}: ${parts.join(", ") || "no data"}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function getWeeklyPlan(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const weekStart = input.week_start as string;
+
+  const computedMonday = getWeekStartMondayUtc(weekStart);
+  if (computedMonday !== weekStart) {
+    return `week_start must be a Monday. Did you mean ${computedMonday}?`;
+  }
+
+  const { data, error } = await supabase
+    .from("weekly_plans")
+    .select("days")
+    .eq("athlete_id", context.athleteId)
+    .eq("week_start", weekStart)
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return `Error querying weekly plan: ${error.message}`;
+  if (!data || !data.days) return `No weekly plan found for week of ${formatDateLabel(weekStart)}.`;
+
+  const dayKeys = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+  ] as const;
+
+  const days = data.days as Record<
+    string,
+    { session_type?: string; notes?: string }
+  >;
+
+  const lines = [`Week of ${formatDateLabel(weekStart)}:`];
+  for (let i = 0; i < dayKeys.length; i++) {
+    const key = dayKeys[i]!;
+    const dayDate = addDays(weekStart, i);
+    const entry = days[key];
+    const sessionType = entry?.session_type ?? "—";
+    const notes = entry?.notes ?? "";
+    const notesStr = notes ? ` — ${notes}` : "";
+    lines.push(`  ${formatDateLabel(dayDate)}: ${sessionType}${notesStr}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function getMesocycles(context: ToolContext): Promise<string> {
+  const { data, error } = await supabase
+    .from("mesocycles")
+    .select("start_date, end_date, goal, notes")
+    .eq("athlete_id", context.athleteId)
+    .order("start_date", { ascending: false });
+
+  if (error) return `Error querying mesocycles: ${error.message}`;
+  if (!data || data.length === 0) return "No mesocycles found.";
+
+  const lines: string[] = [];
+  for (const m of data) {
+    let line = `${formatDateLabel(m.start_date)} to ${formatDateLabel(m.end_date)}: ${m.goal}`;
+    if (m.notes) line += ` (${m.notes})`;
+    lines.push(line);
+  }
+
+  return lines.join("\n\n");
+}
+
+// ── Write executors ─────────────────────────────────────────────
+
+async function logReadiness(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const date = (input.date as string) ?? context.localDate;
+
+  const row: Record<string, unknown> = {
+    athlete_id: context.athleteId,
+    date,
+    timestamp: new Date().toISOString(),
+  };
+  if (input.hrv != null) row.hrv = input.hrv;
+  if (input.rhr != null) row.rhr = input.rhr;
+  if (input.recovery_score != null) row.recovery_score = input.recovery_score;
+  if (input.sleep_hours != null) row.sleep_hours = input.sleep_hours;
+
+  const { error } = await supabase.from("readiness").insert(row);
+  if (error) return `Error logging readiness: ${error.message}`;
+
+  const parts: string[] = [];
+  if (input.hrv != null) parts.push(`HRV ${input.hrv}`);
+  if (input.rhr != null) parts.push(`RHR ${input.rhr}`);
+  if (input.recovery_score != null) parts.push(`Recovery ${input.recovery_score}`);
+  if (input.sleep_hours != null) parts.push(`Sleep ${input.sleep_hours}h`);
+
+  return `Logged readiness for ${date}: ${parts.join(", ")}`;
+}
+
+async function updateAthleteProfile(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const { error } = await supabase.from("athlete_profile").insert({
+    athlete_id: context.athleteId,
+    content: input.content as string,
+    timestamp: new Date().toISOString(),
+  });
+  if (error) return `Error updating athlete profile: ${error.message}`;
+  return "Athlete profile updated.";
+}
+
+async function updateUserPreferences(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const { error } = await supabase.from("user_preferences").insert({
+    athlete_id: context.athleteId,
+    content: input.content as string,
+    timestamp: new Date().toISOString(),
+  });
+  if (error) return `Error updating user preferences: ${error.message}`;
+  return "User preferences updated.";
+}
+
+async function createMesocycle(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const row: Record<string, unknown> = {
+    athlete_id: context.athleteId,
+    start_date: input.start_date as string,
+    end_date: input.end_date as string,
+    goal: input.goal as string,
+    timestamp: new Date().toISOString(),
+  };
+  if (input.notes != null) row.notes = input.notes;
+
+  const { error } = await supabase.from("mesocycles").insert(row);
+  if (error) return `Error creating mesocycle: ${error.message}`;
+
+  const goal = input.goal as string;
+  const goalSummary = goal.length > 80 ? goal.slice(0, 80) + "…" : goal;
+  return `Mesocycle created: ${input.start_date} to ${input.end_date} — ${goalSummary}`;
+}
+
+async function deleteLogEntry(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const table = input.table as string;
+  const id = input.id as string;
+
+  // Fetch the row to confirm it exists and belongs to this athlete
+  const { data: row, error: fetchError } = await supabase
+    .from(table)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchError) return `Error fetching entry: ${fetchError.message}`;
+  if (!row) return `No entry found with id ${id} in ${table}.`;
+  if (row.athlete_id !== context.athleteId)
+    return `Entry ${id} does not belong to this athlete.`;
+
+  // Delete
+  const { error: deleteError } = await supabase
+    .from(table)
+    .delete()
+    .eq("id", id);
+
+  if (deleteError) return `Error deleting entry: ${deleteError.message}`;
+
+  // Format response — exclude id, athlete_id, timestamp
+  if (table === "sets") {
+    let desc = `${row.exercise} ${row.weight_kg}x${row.reps}`;
+    if (row.rir != null) desc += ` @ RIR ${row.rir}`;
+    return `Deleted from sets: ${desc} on ${row.date}`;
+  } else {
+    let desc = `${row.distance_km}km ${row.run_type}`;
+    if (row.avg_pace) desc += `, ${row.avg_pace}/km`;
+    return `Deleted from runs: ${desc} on ${row.date}`;
+  }
+}
+
+const NON_UPDATABLE = new Set(["athlete_id", "id", "timestamp"]);
+
+async function updateLogEntry(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const table = input.table as string;
+  const id = input.id as string;
+  const updates = input.updates as Record<string, unknown>;
+
+  const blockedKeys = Object.keys(updates).filter((k) => NON_UPDATABLE.has(k));
+  if (blockedKeys.length > 0)
+    return `Cannot update protected fields: ${blockedKeys.join(", ")}`;
+
+  // Fetch current row
+  const { data: row, error: fetchError } = await supabase
+    .from(table)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchError) return `Error fetching entry: ${fetchError.message}`;
+  if (!row) return `No entry found with id ${id} in ${table}.`;
+  if (row.athlete_id !== context.athleteId)
+    return `Entry ${id} does not belong to this athlete.`;
+
+  // Capture old values for changed fields
+  const oldValues: Record<string, unknown> = {};
+  for (const key of Object.keys(updates)) {
+    oldValues[key] = row[key];
+  }
+
+  // Step 3: Apply update
+  const { error: updateError } = await supabase
+    .from(table)
+    .update(updates)
+    .eq("id", id);
+
+  if (updateError) return `Error updating entry: ${updateError.message}`;
+
+  // Step 4: Return before/after
+  const exercise = row.exercise ?? row.run_type ?? "";
+  const date = row.date ?? "";
+  const changes = Object.keys(updates)
+    .map((k) => `${k} ${oldValues[k]} → ${updates[k]}`)
+    .join(", ");
+
+  return `Updated ${exercise} on ${date}: ${changes}`;
+}
+
+async function logSets(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const sets = input.sets as Array<Record<string, unknown>>;
+  const date = (input.date as string) ?? context.localDate;
+  const timestamp = new Date().toISOString();
+
+  // Phase 1: Duplicate check — skip sets already logged
+  const toInsert: Record<string, unknown>[] = [];
+  for (const s of sets) {
+    const { data: existing } = await supabase
+      .from("sets")
+      .select("id")
+      .eq("athlete_id", context.athleteId)
+      .eq("date", date)
+      .eq("exercise", s.exercise as string)
+      .eq("weight_kg", s.weight_kg as number)
+      .eq("reps", s.reps as number)
+      .limit(1);
+
+    if (existing && existing.length > 0) continue;
+
+    const row: Record<string, unknown> = {
+      athlete_id: context.athleteId,
+      date,
+      exercise: s.exercise,
+      weight_kg: s.weight_kg,
+      reps: s.reps,
+      timestamp,
+    };
+    if (s.rir != null) row.rir = s.rir;
+    if (s.notes != null) row.notes = s.notes;
+    toInsert.push(row);
+  }
+
+  // Phase 2: Insert non-duplicates
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from("sets").insert(toInsert);
+    if (error) return `Error logging sets: ${error.message}`;
+  }
+
+  // Phase 3: Return full session for this date
+  const { data: allSets, error: fetchError } = await supabase
+    .from("sets")
+    .select("exercise, weight_kg, reps, rir")
+    .eq("athlete_id", context.athleteId)
+    .eq("date", date)
+    .order("timestamp", { ascending: true });
+
+  if (fetchError) return `Error fetching session: ${fetchError.message}`;
+  if (!allSets || allSets.length === 0) return `No sets found for ${date}.`;
+
+  const summaries = allSets.map((s) => {
+    let desc = `${s.exercise} ${s.weight_kg}x${s.reps}`;
+    if (s.rir != null) desc += ` @${s.rir}`;
+    return desc;
+  });
+
+  return `Session for ${date}: ${summaries.join(", ")}. (${allSets.length} sets total)`;
+}
+
+
+async function logRun(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const date = (input.date as string) ?? context.localDate;
+
+  const row: Record<string, unknown> = {
+    athlete_id: context.athleteId,
+    date,
+    distance_km: input.distance_km,
+    run_type: input.run_type,
+    timestamp: new Date().toISOString(),
+  };
+  if (input.duration_min != null) row.duration_min = input.duration_min;
+  if (input.avg_pace != null) row.avg_pace = input.avg_pace;
+  if (input.avg_hr != null) row.avg_hr = input.avg_hr;
+  if (input.notes != null) row.notes = input.notes;
+
+  const { error } = await supabase.from("runs").insert(row);
+  if (error) return `Error logging run: ${error.message}`;
+
+  const parts = [`${input.distance_km}km ${input.run_type}`];
+  if (input.avg_pace != null) parts.push(`${input.avg_pace}/km`);
+  if (input.avg_hr != null) parts.push(`HR ${input.avg_hr}`);
+  return `Logged: ${parts.join(", ")} on ${date}`;
+}
+
+async function commitWeeklyPlan(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const weekStart = input.week_start as string;
+
+  const computedMonday = getWeekStartMondayUtc(weekStart);
+  if (computedMonday !== weekStart) {
+    return `week_start must be a Monday. Did you mean ${computedMonday}?`;
+  }
+
+  const { error } = await supabase.from("weekly_plans").insert({
+    athlete_id: context.athleteId,
+    week_start: weekStart,
+    days: input.days,
+    timestamp: new Date().toISOString(),
+  });
+  if (error) return `Error committing weekly plan: ${error.message}`;
+
+  return `Weekly plan committed for week of ${weekStart} (Monday)`;
+}
+
+async function commitTodayPlan(
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  const row: Record<string, unknown> = {
+    athlete_id: context.athleteId,
+    date: context.localDate,
+    type: "today_plan",
+    session_type: input.session_type as string,
+    timestamp: new Date().toISOString(),
+  };
+  if (input.notes != null) row.notes = input.notes;
+  row.exercises = input.exercises != null ? JSON.stringify(input.exercises) : null;
+
+  const { error } = await supabase.from("plans").insert(row);
+  if (error) return `Error committing today's plan: ${error.message}`;
+
+  const sessionType = input.session_type as string;
+  const notes = input.notes as string | undefined;
+  const suffix = notes ? ` — ${notes}` : "";
+  return `Today's plan committed: ${sessionType}${suffix}`;
+}
+
+// ── Main dispatcher ─────────────────────────────────────────────
+
+export async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  context: ToolContext
+): Promise<string> {
+  switch (name) {
+    // Retrieval
+    case "get_history":
+      return getHistory(input, context);
+    case "get_weekly_plan":
+      return getWeeklyPlan(input, context);
+    case "get_mesocycles":
+      return getMesocycles(context);
+    // Write
+    case "log_readiness":
+      return logReadiness(input, context);
+    case "update_athlete_profile":
+      return updateAthleteProfile(input, context);
+    case "update_user_preferences":
+      return updateUserPreferences(input, context);
+    case "create_mesocycle":
+      return createMesocycle(input, context);
+    case "delete_log_entry":
+      return deleteLogEntry(input, context);
+    case "update_log_entry":
+      return updateLogEntry(input, context);
+    case "log_sets":
+      return logSets(input, context);
+    case "log_run":
+      return logRun(input, context);
+    case "commit_weekly_plan":
+      return commitWeeklyPlan(input, context);
+    case "commit_today_plan":
+      return commitTodayPlan(input, context);
+    default:
+      return `Unknown tool: ${name}`;
+  }
+}

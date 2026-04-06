@@ -1,0 +1,72 @@
+DECISIONS.md A living log of key decisions made during the rebuild of the training app. Captures what was decided, what was considered, and why.
+
+ARCHITECTURAL DECISIONS
+One central brain, tabs are lenses Decided: March 2026
+The v1 app had separate AI context built per route — each tab assembled its own prompt, loaded its own data, and had its own view of the athlete. This created fragmented intelligence where decisions made in one tab didn't propagate to others.
+We chose a single central context builder that every tab draws from. The brain is identical regardless of tab. The only thing that changes per tab is a single focused instruction about what the athlete is trying to do right now.
+Rejected: separate brains per tab, tab-specific context assembly, different tool availability per tab as a primary differentiator.
+
+Natural language over structured fields for athlete profile and preferences Decided: March 2026
+Early thinking pushed toward a structured signals table — extracting discrete facts from conversations and storing them as queryable fields. Categories like "travel flags", "fatigue observations", "performance trends."
+We rejected this because structure limits what the AI can notice. If we define the categories upfront, we're making decisions about what matters before the AI has a chance to observe what actually matters for this specific athlete. Natural language preserves the full fidelity of what was said and lets the AI reason across it freely.
+The magic moment that informed this: pasting a full chat log into Claude and getting sharp, specific insights — that happened because the AI had access to rich unstructured context, not structured fields.
+Structured data is kept only where it genuinely needs to be: training numbers (sets, runs), dates, and UI-renderable plan structures.
+Rejected: signals table, structured attribute extraction, predefined category taxonomy.
+
+Principles not rules in the prompt Decided: March 2026
+V1 had hardcoded rules: "NEVER squat heavy within 48 hours of a tempo run", "One lower session per week while running 3x", specific HRV thresholds with prescribed responses. These created rigid, deterministic behaviour that felt mechanical rather than intelligent.
+We replaced rules with principles — teaching the AI why certain sessions conflict, how fatigue pools work, what recovery data means — and letting it reason from there. A coach who understands interference principles will figure out the spacing themselves. A coach following a rule will fail every time the situation doesn't match the rule exactly.
+The test: if the AI needs a rule to get something right, the principle isn't strong enough yet.
+Rejected: hardcoded spacing rules, threshold-based decision trees, prescribed tool call sequences.
+
+Daily summaries as primary memory layer Decided: March 2026
+The conversation history grows unboundedly. Loading all messages from all time would quickly exceed context windows and become expensive. We needed a compression mechanism.
+V1 summaries were too lossy — compressing "I'm jet lagged and exhausted from travel" into generic "athlete reported fatigue." The specific context that makes coaching intelligent disappeared in compression.
+We chose rich daily summaries written from the coach's perspective — specific facts with dates, the coach's interpretation and inference, not just what happened but what it means. The quality of the summary is the quality of the memory.
+The summariser prompt explicitly requires specificity and inference: "Athlete said 'I just can't face the gym today' despite 81 HRV and 58 RHR — third time this month subjective fatigue has contradicted recovery metrics" is the standard, not "athlete reported fatigue."
+Rejected: loading all raw messages, structured memory extraction, rolling window without summaries, separate signals table.
+
+Context index for depth-on-demand Decided: March 2026
+Loading everything on every request is expensive and noisy. But arbitrary cutoffs create blind spots.
+We chose a foundation layer that always loads — last 7 summaries, athlete profile, current plan, today's data — plus a context index that describes what's available in the deeper layer. The AI reads the index and decides whether going deeper would improve the response. If yes, it retrieves via tool call.
+The context index format: static description written once in the prompt describing what each data source contains and when to use it, plus a dynamic inventory generated at context build time from simple database queries — row counts and date ranges. No AI generation needed for the inventory itself.
+Rejected: arbitrary time-based cutoffs, loading everything always, no depth layer.
+
+Two context loads based on tab Decided: March 2026
+The full foundation layer is appropriate for planning tabs — Today, Week, Season, Coach. But for Session tab, the athlete is mid-workout and needs fast, focused responses.
+Session tab gets a lean context — brief athlete profile, today's plan, today's messages. Full depth available via tool if needed. The brain is the same, the load is optimised for the task.
+Rejected: identical context load for all tabs, no context optimisation.
+
+Observe, surface, confirm, store for profile updates Decided: March 2026
+Every update to athlete profile or user preferences follows the same pattern: the AI observes a pattern, surfaces it conversationally, gets confirmation, then writes a new version. The versioning preserves history — newest row wins, older rows available if a stored inference needs to be reverted.
+Rejected: silent profile updates, structured attribute fields with discrete update logic.
+
+Meso structure — start date, end date, goal only Decided: March 2026
+Minimum viable meso structure for v1 is a goal in natural language and a date range. Start date, end date, goal. That's enough for the AI to reason about where the athlete is in the block and what the current week should look like. No phase labels, no structured targets — those emerge from the coaching conversation.
+This affects the schema directly — the mesocycles table needs nothing beyond these three fields plus athlete_id and timestamp.
+Rejected: predefined phase categories, structured weekly targets per phase, rigid periodization templates.
+
+SCOPE DECISIONS
+Build for one, architect for many Decided: March 2026
+V1 had the athlete profile hardcoded in the prompt. Adding a second user would require a rebuild.
+We chose to keep v1 focused on a single athlete but build the data model with athlete_id on every table from day one. Adding a second user is a data problem, not a rebuild. The onboarding flow is deferred to a later version.
+Rejected: fully generic onboarding in v1, hardcoded athlete profile in prompt.
+
+Deferred: structured run splits Decided: March 2026
+Kilometre-by-kilometre split data deferred until Garmin/Strava integration makes automatic population viable. Rich notes on runs capture the qualitative detail in the meantime.
+Rejected: splits table without integration, manual split logging.
+
+Deferred: voice input for running Decided: March 2026
+Voice is V2. Lifting session coaching demonstrates the core coaching loop first. Running session coaching via text is functional but not ideal for the live coaching vision.
+Rejected: voice-first session experience in v1.
+
+Deferred: onboarding flow Decided: March 2026
+Proper onboarding deferred until there are users to onboard. Data model supports multiple athletes from day one. The onboarding conversation gets built when it's needed.
+Rejected: generic onboarding in v1, form-based onboinging.
+
+DECISIONS TO MAKE DURING BUILD
+These are implementation details with no downstream dependencies. Will be decided with better information when building.
+* How the weekly scan for Coach tab gets triggered
+* How the Today tab opener handles days with no weekly plan
+* How the end-of-session reflection gets triggered
+

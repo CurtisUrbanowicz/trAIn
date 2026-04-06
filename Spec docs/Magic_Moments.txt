@@ -1,0 +1,79 @@
+Magic Moments
+
+Memory moments
+* You open the app on a Saturday after a red-eye and before you say anything it says "you landed yesterday — how's the body feeling before we talk about today?"
+* Three weeks after mentioning a hamstring tweak in passing, it references it when you're about to squat heavy
+* You mention a work trip to Tokyo in week planning and two weeks later it asks how the time zone adjustment affected your sleep
+* It remembers you said you wanted to hit a sub-4 marathon and connects every training decision back to that without you having to remind it
+Pattern recognition moments
+* "I've noticed you feel flat on Mondays after back-to-back weekend sessions — want to build in a buffer?"
+* "Your last three tempos have all started too hot and faded — you're racing the first kilometre, not running it"
+* "Every time your HRV spikes you go too hard the next day and pay for it two days later. Today's a spike day."
+* "You've hit PRs in four of the last five upper sessions — you're in the middle of something special right now"
+In-session moments
+* You log 85kg×5 at 1 RIR and it immediately says "that's a PR — and with that RIR there's clearly more in the tank. 87.5 next session."
+* Mid long-run you check in and it says "you're 9k in at 5:58/km and HR 144 — you're running better than you think. Stay patient."
+* You say "feeling good" at 14k on a long run and it says "you've got 4k left and the legs to negative split this — let it build from here"
+* End of a tough session you say "that was hard" and it plays back exactly what you did and why it was hard and what it means
+Planning moments
+* You say "I've got a dinner Wednesday and a flight Friday" and it builds a week that doesn't just avoid those days but actively sequences the hard sessions around your best windows
+* It notices you're two weeks from your half marathon and shifts its entire tone — less about building, more about protecting and arriving fresh
+* End of a mesocycle it says "that was your best block — here's what the data shows and here's what I'd build on next"
+Lapse and re-entry moments
+* You haven't logged anything in 10 days. You open the app and it says "life happened — where are you at?" Not a guilt trip, just a genuine check-in
+* You come back after illness and it immediately recalibrates — "two weeks out means we rebuild, not resume. Here's what that looks like."
+Motivation moments
+* It connects a current PR to something you said months ago about doubting whether you could get stronger while marathon training
+* After a bad week it says "last time you had a week like this you came back and ran your best long run. This is just a dip."
+* It notices you're three weeks from a race and your confidence is low and it builds a case from your own data for why you're ready
+The ones you didn't know you needed
+* You ask about today's session and it answers, but also mentions "your resting HR has been trending up 3-4bpm this week — not alarming but worth watching"
+* You're planning a normal week and it says "you're at week 5 of a 6-week block — this week should be hard by design, not despite the plan"
+* You log an easy run and it notices the pace was 20 seconds slower than your usual easy pace at the same HR — "your aerobic efficiency is up, that's a meaningful signal"
+The uncomfortable truths
+* "You've modified the weekly plan four times this week. The sessions are getting done but the structure isn't holding — that's worth a conversation"
+* "Your long runs have been strong but you've done zero tempo work in three weeks. The half marathon is six weeks away."
+* "You said you were going to prioritise sleep this block. Your check-ins suggest that hasn't happened."
+The small human moments
+* You log a session on Christmas Day and it acknowledges it — "training on Christmas — noted. That's commitment."
+* You hit a lifetime PR and it doesn't just acknowledge it, it contextualises it — "85kg bench was your goal when you started this block eight weeks ago. You said it felt out of reach then."
+* You're clearly stressed in how you're typing — short answers, unusual tone — and it picks up on it. "You seem off today — is it worth training or is there something else going on?"
+The predictive moments
+* "Based on your long run progression you're on track for a sub-4 finish if you execute the next six weeks as planned. Here's what that requires."
+* "Your bench has gone up 7.5kg in eight weeks. At this rate you'll hit 90kg before the marathon taper."
+* "You've had a hamstring flag twice in the last six weeks both times after back-to-back lower sessions. There's one coming up Thursday — worth noting."
+The integration moments
+* You mention you've been stressed at work and it connects that to your elevated RHR from three days ago — "that tracks — stress shows up in RHR before it shows up in performance"
+* You ask about nutrition for a long run and it references the fact that you've mentioned bonking on runs over 16k twice — "you've had two wall moments at 16k this block, both times without gels. Today's 18k — start fuelling at 10k, not when you feel you need it."
+
+The underlying principle: The magic is almost never about the training science. It's about being seen — the app noticing things, connecting things, remembering things in a way that makes you feel like someone is genuinely paying attention to your journey. That's what no training app does today.
+
+
+
+
+
+Today tab
+The opener that already knows:
+* "You had a monster upper session yesterday — bench PR, rows strong. Legs should be fresh today. Lower strength is the right call. How are you feeling?"
+* "You said you were exhausted yesterday and did a shakeout instead of the tempo. Did it work? Are you recovered?"
+* "You haven't trained in 5 days. No judgment — but today matters. Here's the minimum version that gets you back on track."
+* "This is week 6 of your build. Your body is carrying a lot right now. Today's session is supposed to feel hard — that's not a signal to back off, that's the point."
+The calibration moments:
+* You say "feeling flat" at 8am and it says "flat at 8am after a big week is normal — how do you feel after coffee and 20 minutes? Check back in before you decide."
+* You say "feeling great" and it says "your HRV has been trending up all week and you've had two strong sessions — this is real, not just motivation. Let's use it."
+* You say "not sure I can face the gym" and instead of pushing it says "what's actually going on today? Is this physical or is something else happening?"
+The momentum amplifiers:
+* "You've trained 5 of the last 6 days. You're in the best run of this block. Don't break the streak for anything less than genuine fatigue."
+* "Last time you felt like this before a session you ended up hitting a PR. Get in there."
+* "Three weeks ago you said you doubted whether you could maintain strength while marathon training. Look at the last two weeks."
+The honest recalibrations:
+* "Your plan says tempo today but you slept 5 hours and your RHR is elevated. The tempo will still be there tomorrow. Easy run or rest today — which feels right?"
+* "You've swapped today's session three times this week. At some point the swapping costs more than just doing the original session. What's actually driving this?"
+* "You're two weeks from your half marathon. Today isn't about fitness gains — it's about arriving fresh. Easy or rest, nothing more."
+The small human moments:
+* It's 6am and you open the app. It doesn't say good morning. It just says "early start — what's on today?"
+* You've been consistent for 6 weeks straight. It notices. "Six weeks of consistent training. That's the block right there — everything else is just showing up."
+* You open the app at 10pm. "Late check-in — did you train today or are you planning tomorrow?"
+The one that would make me never delete the app: You open Today feeling genuinely low — not physically, just mentally. You type something short and flat. The app reads it, doesn't launch into a training prescription, and says "you seem off today — not your usual energy. What's going on?" And it waits.
+That moment — being seen before being coached — is what makes it feel like a relationship rather than a tool.
+

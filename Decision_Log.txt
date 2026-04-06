@@ -1,0 +1,154 @@
+DECISIONS.md A living log of key decisions made during the rebuild of the training app. Captures what was decided, what was considered, and why.
+
+ARCHITECTURAL DECISIONS
+One central brain, tabs are lenses Decided: March 2026
+The v1 app had separate AI context built per route — each tab assembled its own prompt, loaded its own data, and had its own view of the athlete. This created fragmented intelligence where decisions made in one tab didn't propagate to others.
+We chose a single central context builder that every tab draws from. The brain is identical regardless of tab. The only thing that changes per tab is a single focused instruction about what the athlete is trying to do right now.
+Rejected: separate brains per tab, tab-specific context assembly, different tool availability per tab as a primary differentiator.
+
+Natural language over structured fields for athlete profile and preferences Decided: March 2026
+Early thinking pushed toward a structured signals table — extracting discrete facts from conversations and storing them as queryable fields. Categories like "travel flags", "fatigue observations", "performance trends."
+We rejected this because structure limits what the AI can notice. If we define the categories upfront, we're making decisions about what matters before the AI has a chance to observe what actually matters for this specific athlete. Natural language preserves the full fidelity of what was said and lets the AI reason across it freely.
+The magic moment that informed this: pasting a full chat log into Claude and getting sharp, specific insights — that happened because the AI had access to rich unstructured context, not structured fields.
+Structured data is kept only where it genuinely needs to be: training numbers (sets, runs), dates, and UI-renderable plan structures.
+Rejected: signals table, structured attribute extraction, predefined category taxonomy.
+
+Principles not rules in the prompt Decided: March 2026
+V1 had hardcoded rules: "NEVER squat heavy within 48 hours of a tempo run", "One lower session per week while running 3x", specific HRV thresholds with prescribed responses. These created rigid, deterministic behaviour that felt mechanical rather than intelligent.
+We replaced rules with principles — teaching the AI why certain sessions conflict, how fatigue pools work, what recovery data means — and letting it reason from there. A coach who understands interference principles will figure out the spacing themselves. A coach following a rule will fail every time the situation doesn't match the rule exactly.
+The test: if the AI needs a rule to get something right, the principle isn't strong enough yet.
+Rejected: hardcoded spacing rules, threshold-based decision trees, prescribed tool call sequences.
+Note (2026-03-24): The AI is still not reliably catching interference patterns (e.g. placing tempo adjacent to heavy squats). The principle may not be strong enough on its own — under active investigation.
+
+Daily summaries as primary memory layer Decided: March 2026
+The conversation history grows unboundedly. Loading all messages from all time would quickly exceed context windows and become expensive. We needed a compression mechanism.
+V1 summaries were too lossy — compressing "I'm jet lagged and exhausted from travel" into generic "athlete reported fatigue." The specific context that makes coaching intelligent disappeared in compression.
+We chose rich daily summaries written from the coach's perspective — specific facts with dates, the coach's interpretation and inference, not just what happened but what it means. The quality of the summary is the quality of the memory.
+The summariser prompt explicitly requires specificity and inference: "Athlete said 'I just can't face the gym today' despite 81 HRV and 58 RHR — third time this month subjective fatigue has contradicted recovery metrics" is the standard, not "athlete reported fatigue."
+Rejected: loading all raw messages, structured memory extraction, rolling window without summaries, separate signals table.
+
+Context index for depth-on-demand Decided: March 2026
+Loading everything on every request is expensive and noisy. But arbitrary cutoffs create blind spots.
+We chose a foundation layer that always loads — last 7 summaries, athlete profile, current plan, today's data — plus a context index that describes what's available in the deeper layer. The AI reads the index and decides whether going deeper would improve the response. If yes, it retrieves via tool call.
+The context index format: static description written once in the prompt describing what each data source contains and when to use it, plus a dynamic inventory generated at context build time from simple database queries — row counts and date ranges. No AI generation needed for the inventory itself.
+Rejected: arbitrary time-based cutoffs, loading everything always, no depth layer.
+
+Two context loads based on tab Decided: March 2026
+The full foundation layer is appropriate for planning tabs — Today, Week, Season, Coach. But for Session tab, the athlete is mid-workout and needs fast, focused responses.
+Session tab gets a lean context — brief athlete profile, today's plan, today's messages. Full depth available via tool if needed. The brain is the same, the load is optimised for the task.
+Rejected: identical context load for all tabs, no context optimisation.
+
+Observe, surface, confirm, store for profile updates Decided: March 2026
+Every update to athlete profile or user preferences follows the same pattern: the AI observes a pattern, surfaces it conversationally, gets confirmation, then writes a new version. The versioning preserves history — newest row wins, older rows available if a stored inference needs to be reverted.
+Rejected: silent profile updates, structured attribute fields with discrete update logic.
+
+Meso structure — start date, end date, goal only Decided: March 2026
+Minimum viable meso structure for v1 is a goal in natural language and a date range. Start date, end date, goal. That's enough for the AI to reason about where the athlete is in the block and what the current week should look like. No phase labels, no structured targets — those emerge from the coaching conversation.
+This affects the schema directly — the mesocycles table needs nothing beyond these three fields plus athlete_id and timestamp.
+Rejected: predefined phase categories, structured weekly targets per phase, rigid periodization templates.
+
+System prompt and context separation at API level Decided: 2026-03-24
+The brain (coaching-brain.md + tab instruction) was originally concatenated with the context block into a single system prompt string. The AI treated behavioral instructions and athlete data with equal weight, causing instructions like communication style and response length to be ignored.
+We separated them: brain goes in the Anthropic API `system` parameter (system-level authority), context block goes as the first user message (information-level). The AI responds to the context with a coaching opener, then conversation flows naturally.
+This was validated in the Anthropic Workbench — same brain, same context, dramatically better instruction-following when separated versus concatenated.
+Also tested and rejected: two system blocks (brain as block 1, context as block 2 in the system parameter). Both blocks having system-level authority produced the same poor results as concatenation. The context must be at user level.
+Rejected: single concatenated system prompt, two system blocks, context attached to every user message.
+
+Context sent once, not on every message Decided: 2026-03-24
+Early implementation attached the context block to every user message. This caused compounding duplication — the context block (including TODAY'S MESSAGES which grew each turn) was sent on every request inside the latest message, while the same conversation was also in the history array. By 12 messages deep, the full conversation existed twice in every API call.
+Fixed by sending context as the first user message only. The AI's opener is the response to that context. All subsequent messages are raw conversation. Context is always in the conversation history because it's the first message, but it's never re-attached.
+Rejected: context on every message, context as system blocks.
+
+Cross-tab message filtering Decided: 2026-03-24
+TODAY'S MESSAGES in the context block was duplicating the current tab's conversation — the same messages were already in the history array. Filtering TODAY'S MESSAGES to exclude the current tab eliminates duplication while preserving cross-tab awareness (messages from other tabs still appear).
+Rejected: removing TODAY'S MESSAGES entirely (would lose cross-tab awareness), including all messages (duplication).
+
+Model upgrade to Sonnet 4.6 Decided: 2026-03-24
+Sonnet 4 (claude-sonnet-4-20250514) could not reliably follow communication style constraints — responses consistently too long and formatted despite explicit instructions. Sonnet 4.6 (claude-sonnet-4-6) follows the same instructions tightly. This was the single largest factor in fixing the communication style.
+Tested by running identical prompts in the Workbench on 4.6 while the app ran on 4. Night and day difference.
+
+No markdown in the brain document Decided: 2026-03-24
+The brain document originally used markdown headers (## Section 1, etc). The AI reads markdown-formatted instructions and mirrors that formatting in responses — even while being told not to use headers or bold. Stripping all markdown from coaching-brain.md and using plain text section labels (SECTION 1 — IDENTITY AND ROLE) removed this trigger.
+Also removed the markdown header "## YOUR CONTEXT FOR THIS SESSION" from route.ts where it bridged the brain and context block.
+
+Pre-computed day names on all dates Decided: 2026-03-24
+The AI was converting YYYY-MM-DD dates to day names incorrectly — called March 23rd (a Monday) "Sunday" because it assumed long runs happen on weekends. Rather than instructing the AI to stop guessing, we pre-compute the day name in the context builder. Every date in the context block now appears as "2026-03-23 (Monday)". The AI reads the label and uses it. No calculation, no errors.
+Implemented as a formatDate() utility in context.ts applied to: today's date, summary dates, weekly plan days, mesocycle dates, readiness dates, context index ranges.
+
+Auto-opener on Coach tab Decided: 2026-03-24
+The Coach tab now automatically fires a request on component mount with no user message. The AI reads the context block and responds with a coaching opener. This aligns with the spec ("AI initiates on first open of the day") and is a natural consequence of the context-as-first-message architecture.
+The opener is a real response, not a canned message. It varies based on what's in the context — recent training, recovery state, block position.
+
+SCOPE DECISIONS
+Build for one, architect for many Decided: March 2026
+V1 had the athlete profile hardcoded in the prompt. Adding a second user would require a rebuild.
+We chose to keep v1 focused on a single athlete but build the data model with athlete_id on every table from day one. Adding a second user is a data problem, not a rebuild. The onboarding flow is deferred to a later version.
+Rejected: fully generic onboarding in v1, hardcoded athlete profile in prompt.
+
+Deferred: structured run splits Decided: March 2026
+Kilometre-by-kilometre split data deferred until Garmin/Strava integration makes automatic population viable. Rich notes on runs capture the qualitative detail in the meantime.
+Rejected: splits table without integration, manual split logging.
+
+Deferred: voice input for running Decided: March 2026
+Voice is V2. Lifting session coaching demonstrates the core coaching loop first. Running session coaching via text is functional but not ideal for the live coaching vision.
+Rejected: voice-first session experience in v1.
+
+Deferred: onboarding flow Decided: March 2026
+Proper onboarding deferred until there are users to onboard. Data model supports multiple athletes from day one. The onboarding conversation gets built when it's needed.
+Rejected: generic onboarding in v1, form-based onboarding.
+
+TOOL LAYER DECISIONS
+
+Tool layer build order Decided: April 2026
+Layer 1: Infrastructure (tool-use loop in route.ts) + all 12 tool definitions in lib/tools.ts — all definitions written before any executors. Layer 2: Retrieval tool executors (get_history, get_weekly_plan, get_mesocycles). Layer 3: Write tool executors (log_sets, log_run, commit_weekly_plan, commit_today_plan, update_athlete_profile, update_user_preferences, log_readiness, delete_log_entry, update_log_entry). Each tool QA'd individually.
+Rejected: building tools without upfront schema definition, building write tools before retrieval.
+
+Streaming during tool-use loops Decided: April 2026
+Collect full response server-side including all tool call loops. Stream only the final text response to the frontend. Simpler than streaming partial text between tool calls, avoids frontend complexity.
+Rejected: streaming text chunks between tool calls, streaming tool call status to frontend.
+
+Executor context interface Decided: April 2026
+Every tool executor receives a shared context object containing athlete_id and localDate, passed from route.ts. Uniform interface regardless of tool. localDate comes from the client, never computed server-side.
+
+Exercise and run_type naming — open strings, no hardcoded vocabulary Decided: April 2026
+No enums, no canonical list, no translation layer. Open string fields in the database. Context index enriched with distinct exercise names and distinct run_types from the athlete's data so the AI sees existing vocabulary on every request. AI uses natural language comprehension plus existing vocabulary to match names. New exercises get a clear canonical name created by the AI. End-of-session playback is the natural confirmation point for the athlete to see and correct names. No shorthand mappings stored in athlete profile — the AI reasons from context, not lookup tables.
+Rejected: hardcoded exercise enum, structured vocabulary/translation layer, shorthand mapping in athlete profile.
+
+Session logging — batch after playback, not real-time Decided: April 2026
+During a live session, the AI coaches in real time but does not write to the database set-by-set. When the session is complete, the AI plays back the full session as a natural coaching reflection and logs only after the athlete has seen the playback. The AI reads language and context to recognise when a session is complete — no explicit command required. If the app crashes mid-session, conversation history is preserved in messages table and the AI offers to log on next load. Outside of live sessions (Coach tab, Today tab), completed training is logged immediately and shown to the athlete for correction.
+Rejected: log-as-you-go with corrections, accumulate with explicit confirmation prompt.
+
+Session ID on sets table — deferred Decided: April 2026
+Two-a-day sessions will group as one session under the distinct-date approach. Acceptable for now. Session ID can be added later without breaking changes.
+
+Non-today logging requires explicit date confirmation Decided: April 2026
+When logging sets, runs, or readiness for any date other than today, the AI confirms the date with the athlete before calling the tool. Prevents date errors on retroactive logging.
+
+update_log_entry field validation via information_schema Decided: April 2026
+The update_log_entry executor validates that all keys in the updates object are actual columns on the target table. Column list retrieved via information_schema.columns query, cached in memory at first call. No hardcoded column lists.
+Rejected: hardcoded column allowlists, unvalidated passthrough.
+
+Weekly plan uses target_date + offset_weeks, not week_start Decided: April 2026
+commit_weekly_plan and get_weekly_plan both take target_date (YYYY-MM-DD) and optional offset_weeks (integer, default 0). The executor snaps to Monday using getWeekStartMondayUtc. The AI never does date arithmetic — "this week" passes localDate with offset 0, "next week" passes localDate with offset 1, "the week of May 3rd" passes 2026-05-03 with offset 0.
+Rejected: AI calculating Monday dates, hardcoded week references in context block, week_start as direct parameter.
+
+Accept double tool call for delete/update Decided: April 2026
+Deleting or updating a logged entry requires the row ID. The AI calls get_history first to find it, then calls delete_log_entry or update_log_entry. Two calls per correction. Corrections are rare, the extra round trip is invisible to the user.
+Rejected: fuzzy matching in executor (fragile with duplicate sets), embedding IDs in session playback (only works for immediate corrections).
+
+Daily summary — not a tool, background generation on first load Decided: April 2026
+Daily summaries are not generated by the coaching AI mid-conversation. On first load of a new day, the context builder checks for any dates with messages but no summary. Generates summaries for the most recent 3 unsummarised dates per load — naturally handles gaps (rest days, days the app isn't opened). Timezone-correct because localDate comes from the client device. No cron job needed.
+Rejected: cron job (timezone issues with multiple athletes), tool on the coaching AI (wrong context for summary generation), check-yesterday-only (misses multi-day gaps).
+
+create_mesocycle tool added Decided: April 2026
+13 tools total (3 retrieval, 10 write). create_mesocycle takes start_date, end_date, goal (natural language), and optional notes. Called after the athlete confirms the block in conversation. Goal field carries all the detail — frequency, session types, approach, intensity arc — in natural language. No structured fields for training parameters.
+Rejected: structured meso fields (target_frequency, session_types, phase labels), separate from spec's natural language approach.
+
+Tab instructions can reinforce and amplify brain principles Decided: April 2026
+Tab-specific instructions are allowed to re-emphasise principles that already live in the brain when those principles are disproportionately important in that tab's context. Brevity matters everywhere but is critical on Today and Session. Time awareness matters everywhere but is most relevant on Today. Interference checking matters everywhere but is most important on Week.
+This is a weighting mechanism, not duplication. The brain carries the principle. The tab instruction turns up the volume where it matters most.
+Rejected: strict separation where tab instructions contain only net-new behaviour.
+
+DECISIONS TO MAKE DURING BUILD
+These are implementation details with no downstream dependencies. Will be decided with better information when building.
+* How the end-of-session reflection gets triggered

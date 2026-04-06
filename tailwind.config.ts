@@ -9,8 +9,24 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        base: "var(--bg-base)",
+        surface: "var(--bg-surface)",
+        "surface-hover": "var(--bg-surface-hover)",
+        "coach-bubble": "var(--bg-coach-bubble)",
+        "athlete-bubble": "var(--bg-athlete-bubble)",
+        accent: {
+          DEFAULT: "var(--accent)",
+          hover: "var(--accent-hover)",
+        },
+      },
+      textColor: {
+        primary: "var(--text-primary)",
+        muted: "var(--text-muted)",
+        streaming: "var(--text-streaming)",
+      },
+      borderColor: {
+        default: "var(--border-default)",
+        hover: "var(--border-hover)",
       },
     },
   },

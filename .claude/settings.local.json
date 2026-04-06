@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(npx next:*)",
+      "Bash(jobs -l)",
+      "Bash(lsof -ti:3000,3001,3002)",
+      "Bash(xargs -r kill)",
+      "Bash(lsof -ti:3000)",
+      "Bash(netstat -ano)",
+      "Bash(kill -9 33028 40048 42520 48856)",
+      "Bash(taskkill //F //PID 33028 //T)",
+      "Bash(taskkill //F //PID 40048 //T)",
+      "Bash(taskkill //F //PID 42520 //T)",
+      "Bash(taskkill //F //PID 48856 //T)",
+      "Bash(taskkill //F //PID 42236 //T)",
+      "Bash(taskkill //F //PID 42508 //T)"
+    ]
+  }
+}

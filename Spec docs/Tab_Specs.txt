@@ -1,0 +1,267 @@
+Session Tab — Build Spec
+
+Core principle: Session is where the value gets realised. Every other tab is about thinking — session is about doing. The coach is present for every set and every kilometre, informed by the full picture but focused entirely on right now. Every in-the-moment decision is made in the context of the arc — the session coach isn't just reacting, it's protecting what comes next.
+
+What makes it great:
+For both modalities — the coach already knows the plan, the recent history, where we are in the meso, and what's coming later in the week before the athlete says anything. It doesn't wait to be told context, it arrives with it.
+Lifting: The athlete logs a set, the coach responds with the next target and a coaching note. Simple, back and forth, set by set. The quality of the coaching comes from the specificity — not "good set" but "that's a PR, 87.5 next session, the strength is clearly there." Progress moments get surfaced. RIR trends within the session get read. The athlete pushes harder because someone is invested and paying attention.
+Running: Check-ins at the right moments — not constant noise, not silence. The coach reads pace and HR together and responds to what the data actually shows. Makes clear calls — "back off 10 seconds" not "your HR seems a bit high." Factors in the rest of the week when making recommendations about distance or effort. The athlete feels accompanied without being interrupted.
+
+The flow:
+Lifting:
+1. Session opens with today's plan visible — exercises, targets, meso context
+2. Athlete logs sets conversationally — "85×5 2RIR"
+3. Coach responds with next target, coaching note, any flags
+4. Repeat through the session
+5. Athlete signals done
+6. Coach plays back full session log for confirmation
+7. Brief reflection — what was achieved, one macro observation if relevant
+Running:
+1. Session opens with today's run visible — type, distance target, HR targets
+2. Athlete checks in at natural points — start, mid-run, end
+3. Coach reads pace and HR, responds with specific guidance
+4. Factors in weekly and meso context for any distance or effort decisions
+5. Athlete signals done
+6. Brief reflection — distance, pace, HR, one observation about what the session showed
+
+Magic moments:
+Lifting:
+* "85kg×5 at 1 RIR — that's a PR. 87.5 next session, the strength is clearly there."
+* "Third set and your RIR is dropping faster than expected — back off the working weight, protect the quality of what's left."
+* "Four weeks ago you hit this for 6. Today you hit it for 10. That's adaptation, not a good day."
+* "You've hit bench, rows, and overhead today. Shoulders have done a lot — keep accessories light."
+* End of session: "Bench volume PR, rows were strong. Three weeks of consistent upper work is showing."
+Running:
+* "You're 9k in at 5:58/km and HR 144 — you're running better than you think. Stay patient."
+* "HR has been drifting since 14k — back off 10 seconds and let it settle."
+* "You said feeling good at 14k — you've got 4k left and the legs to negative split this. Let it build."
+* "Another long run coming in 5 days — 18k clean is worth more than 20k that costs you next weekend."
+* End of session: "18k, 6:03, 149 average. Longest run of the block. The base is building."
+
+Future roadmap:
+Lifting:
+* Velocity tracking integration (Perch, Push band) — bar speed as real-time fatigue and technique signal
+* Video analysis — athlete films a set, app analyses form
+* Wearable movement data — symmetry and pattern detection
+Running:
+* Voice input — essential for live coaching, athlete never needs to look at phone
+* Live HR/pace feed from Garmin/Whoop — ambient real-time coaching, check-ins triggered by data not by athlete
+* Pre-agreed check-in thresholds configurable by athlete
+* Race day mode — dedicated coaching experience specific to the goal event, pacing strategy, real-time segment guidance
+
+
+
+
+
+
+
+
+
+Today Tab — Vision & Spec
+
+The core principle: Today is the most intimate tab. It's where the perfect plan meets real life — traffic, bad sleep, stress, unexpected energy. The coaching here is less about the training science and more about meeting the athlete exactly where they are, not where the plan says they should be.
+What makes it great:
+The opener should always be informed by three layers:
+* Yesterday — what happened, how the athlete felt, what was said. Not just training data but the qualitative. "You said you felt gassed" is different from "you logged an upper strength session."
+* The recent arc — last 3-7 days as a pattern. Coming off a big week vs. a light week changes everything.
+* The meso context — where are we in the block. Last hard week before deload, first week of a new block, two weeks from race day — each changes the coaching tone entirely.
+Time awareness: The app should reason differently based on when the athlete reaches out. 8am is pre-decision. Noon is post-calibration. 5pm is "am I actually going to do this today." Each has a different emotional register and different coaching need. This doesn't need to be stated — it should just inform how the AI frames things.
+The flow:
+1. Opens with a contextual frame — not "here's your plan" but why today's session makes sense given yesterday, the recent arc, and the meso
+2. One question about how they're feeling — not a checklist, one question that opens the conversation
+3. Back and forth as needed — could be one exchange, could be five
+4. Ends with a clear prescription — not options, a specific recommendation with reasoning
+5. Athlete leaves knowing exactly what they're doing and feeling like doing it
+The momentum piece:
+* On a good run: amplify it. Reference the streak, the arc, the momentum that's been building.
+* On a bad day: find the minimum viable session that keeps the thread alive. One session changes the narrative.
+* After a lapse: no judgment, genuine check-in, minimum viable re-entry.
+
+Magic moments:
+The opener that already knows:
+* "You had a monster upper session yesterday — bench PR, rows strong. Legs should be fresh today. Lower strength is the right call. How are you feeling?"
+* "You said you were exhausted yesterday and did a shakeout instead of the tempo. Did it work? Are you recovered?"
+* "You haven't trained in 5 days. No judgment — but today matters. Here's the minimum version that gets you back on track."
+* "This is week 6 of your build. Your body is carrying a lot right now. Today's session is supposed to feel hard — that's not a signal to back off, that's the point."
+The calibration moments:
+* You say "feeling flat" at 8am and it says "flat at 8am after a big week is normal — how do you feel after coffee and 20 minutes? Check back in before you decide."
+* You say "feeling great" and it says "your HRV has been trending up all week and you've had two strong sessions — this is real, not just motivation. Let's use it."
+* You say "not sure I can face the gym" and instead of pushing it says "what's actually going on today? Is this physical or is something else happening?"
+The momentum amplifiers:
+* "You've trained 5 of the last 6 days. You're in the best run of this block. Don't break the streak for anything less than genuine fatigue."
+* "Last time you felt like this before a session you ended up hitting a PR. Get in there."
+* "Three weeks ago you said you doubted whether you could maintain strength while marathon training. Look at the last two weeks."
+The honest recalibrations:
+* "Your plan says tempo today but you slept 5 hours and your RHR is elevated. The tempo will still be there tomorrow. Easy run or rest today — which feels right?"
+* "You've swapped today's session three times this week. At some point the swapping costs more than just doing the original session. What's actually driving this?"
+* "You're two weeks from your half marathon. Today isn't about fitness gains — it's about arriving fresh. Easy or rest, nothing more."
+The small human moments:
+* It's 6am and you open the app. It doesn't say good morning. It just says "early start — what's on today?"
+* You've been consistent for 6 weeks straight. It notices. "Six weeks of consistent training. That's the block right there — everything else is just showing up."
+* You open the app at 10pm. "Late check-in — did you train today or are you planning tomorrow?"
+The one that would make you never delete the app: You open Today feeling genuinely low — not physically, just mentally. You type something short and flat. The app reads it, doesn't launch into a training prescription, and says "you seem off today — not your usual energy. What's going on?" And it waits.
+That moment — being seen before being coached — is what makes it feel like a relationship rather than a tool.
+
+Future considerations:
+* Whoop/Oura integration — Today opener automatically informed by overnight recovery data without the athlete having to report it
+* Streak and consistency tracking — visible momentum indicator that the AI references proactively
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Week Tab — Full Vision & Spec
+
+The core principle: Week tab is the cognitive offload tab. The athlete knows the pieces — sessions, constraints, life — and the app arranges them. The best version of Week tab is one where you spend 5 minutes at the start of the week and then just execute, because the app did all the thinking.
+
+What makes it great:
+The tetris problem solved — the athlete describes their week, the app finds the optimal arrangement. Flight Thursday, want tempo and legs before travel, probably tired Friday — the app works through every permutation considering session interference, recovery windows, meso context, and what's already been done. The athlete describes the situation, the app does the work.
+Pattern surfacing — the app notices things across weeks that the athlete can't hold in their head. "Your last three Mondays after Sunday long runs you either skipped or reported low energy — that's a pattern worth building around." The weekly plan gets smarter over time because it's learning from actual outcomes.
+Meso awareness — the week is never standalone. It's week 4 of 6, or the deload week, or the week before a race. That context is present in every planning conversation and shapes the tone and intensity of the whole week.
+
+The flow:
+Two reflection moments per week cycle, serving different needs:
+End of final session — emotional close: Brief, specific, in the moment. "That was your week — tempo PR, long run executed cleanly, missed lower but the right call. Strong week." Closes the week while the feeling is present.
+Start of new week planning — analytical open: Reflection as the gateway to planning. Before proposing next week, the app looks back at last week. What was planned, what happened, what it means for this week. One informs the other naturally.
+Then:
+* Athlete shares constraints or asks for a plan
+* App proposes full week with brief sequencing reasoning
+* Back and forth as needed
+* On commit, grid renders as primary view
+
+Magic moments:
+The tetris solver: "You've got a flight Thursday, want tempo and legs before you go, and you know you'll be tired Friday. Here's the arrangement that works: tempo Tuesday, lower Wednesday, travel Thursday, easy or rest Friday. Upper can go Saturday when you're settled. That's the optimal permutation — want to lock it in?"
+The ripple effect: "If we move lower to Wednesday it puts it 48 hours before Friday's tempo — that's tight. Want to swap tempo to Thursday instead, or keep lower light on Wednesday?"
+The honest constraint: "You've got 4 sessions you want to fit into 5 days with a flight Thursday. Something has to give — here's what I'd drop and why. The accessories are the most expendable this week given where you are in the meso."
+If something has to give: The app identifies the lowest-cost session to drop or modify when the week is overloaded — not by labelling sessions as optional, but by reasoning about which one has the least impact on the week's primary goals. Surfaces this proactively before the athlete has to figure it out themselves.
+The week in context: "This is your deload week. I know it feels like backing off but this is where the adaptation happens. Here's a lighter version of each session that still keeps the pattern."
+The proactive Monday flag: "You've got a lot packed in before Thursday — if anything slips this week it should be Wednesday's accessories, not the tempo."
+The pattern observation: "Your last two sessions after a long run were shorter and you reported feeling flat. Want to build in rest or accessories the day after your long run going forward? If that's unworkable we can pull the long run effort back slightly on weeks where the following day matters."
+End of final session reflection: "That was your week — tempo PR, long run executed cleanly, missed lower but the right call. Strong week."
+Gateway to new week — analytical reflection: "You planned 4 sessions, completed 3, modified one. The tempo was your best in 6 weeks. The missed lower session was the right call given the fatigue you reported. Net positive week. Ready to plan next week?"
+
+Future considerations:
+* Calendar integration — app reads your actual calendar for constraints rather than you having to describe them
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Season Tab — Vision & Spec
+
+The core principle: Season tab is where the invisible becomes visible. Training is a long game and humans are bad at seeing gradual progress. Season tab shows you the mountain you've been climbing — one step at a time, without realising it. Reflection and planning aren't two modes, they're one continuous conversation that moves naturally between looking back and looking forward.
+
+Three layers, in order:
+1. Data first — the primary orientation Charts, calendar, trends. The visual picture. This is what you see when you open the tab. No coaching required — the data speaks first.
+2. Proactive insight — when the bar is cleared When something clears the "would a good coach reach out about this?" bar, it surfaces here. Connected to the data, specific, not generic. Not a notification — a card or line that appears when there's something genuinely worth saying. The insight is always tied to something visible in the data.
+3. Coaching conversation — available, not forced The data and insight prompt it naturally. You can go deeper or just look and leave. The conversation is always available but never imposed.
+
+What it shows:
+* Lifting trends by compound — top set per session, PR dots, clear progressive line across weeks
+* Running volume — weekly total and long run, 8/24/52 week toggle
+* Training calendar with shading — density and consistency at a glance
+* Active meso phase indicator — where you are in the current block
+* Proactive insight card — when something clears the bar
+
+The flow:
+You open Season and see the data. The visual picture prompts a feeling — pride, concern, curiosity. The proactive insight card surfaces what the coach has been noticing. You bring that to the conversation if you want to go deeper. That conversation becomes the foundation for the next block when the time comes.
+Two strategic conversation moments:
+End of meso — reflection first: "That block is done. Here's what it built, here's what it didn't, here's what the next one needs to prioritise." Reflection leads naturally into planning the next block.
+New block planning: Informed entirely by what the reflection showed. Time horizon is athlete-led — a new athlete might plan a week, an experienced one might plan 3-4 months. The AI matches the depth the athlete brings.
+
+Magic moments:
+The progress you didn't notice:
+* "Your easy run pace at the same HR has dropped 18 seconds per kilometre over 8 weeks. Your aerobic base is genuinely building — that's not fitness you can feel day to day but it shows up in the data."
+* "You've hit a compound lift PR in 7 of the last 9 upper sessions. That's not a hot streak — that's a trend."
+* "Your long run has gone from 12k to 20k in 10 weeks. That's the base you're going to race on."
+The honest uncomfortable ones:
+* "Your tempo pace hasn't moved in 6 weeks despite consistent training. The base is building but the top end isn't responding yet — that's worth addressing in the next block."
+* "You've averaged 2.3 sessions per week this block against a target of 4. The fitness is there but the consistency isn't — next block needs a more realistic structure."
+* "Your strength has held up well but your long run progression has stalled. You may be at the ceiling of what's possible while running this volume — something has to give in the next block."
+The arc moments:
+* "Eight weeks ago you said you doubted whether you could maintain strength while building marathon volume. Your bench is up 7.5kg and your long run is up 8k. You've answered that question."
+* "You're halfway to your race. Here's what the data says about whether you're on track — and what needs to happen in the next 8 weeks."
+* "That was your best training block. Here's what made it different from the previous one."
+The transition moments:
+* End of meso: "That block is done. Here's what it built, here's what it didn't, here's what the next one needs to prioritise."
+* Pre-taper: "Three weeks out. Your fitness is as good as it's going to get — now it's about arriving fresh. Here's what that looks like."
+* Post-race: "You ran sub-4. Here's what the training data says about why it worked — and what a recovery block looks like before we start thinking about what's next."
+The visual moments:
+* You open the lifting trends chart and see a clear upward line across 12 weeks. No coaching needed — the picture says everything.
+* The calendar shows 47 out of 56 days with training logged. Consistency made visible.
+* The running volume chart shows clear progressive overload — each week slightly more than the last, one deload week in the middle, then building again. The periodization is visible.
+The insight that reframes everything:
+* "Your best performances have always come after your highest sleep weeks, not your highest training weeks. That's a pattern worth taking seriously."
+* "Every time you've had a travel week you've come back stronger the following week — the forced deload is working in your favour even when it doesn't feel like it."
+* "Your HRV trend and your performance trend are almost perfectly correlated with a 4-day lag. When HRV drops, performance follows 4 days later. That's your early warning system."
+The strategic conversation starter:
+* "You've got 12 weeks to your race. Based on where you are right now, here's what's realistic, what's ambitious, and what would require everything going right."
+* "This block focused on base. The data says the base is there. The next block needs to introduce quality — here's what that looks like."
+
+Future considerations:
+* Strava/Garmin import at onboarding — athlete uploads full activity history, Season tab has years of data from day one
+* Race result integration — actual race performance fed back into the arc, informing the next block
+* Comparative blocks — "this block vs. your best block" as a visual overlay
+* Predictive trajectory — "at current progression you'll hit X by race day"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Coach Tab — Build Spec
+
+Core principle: Direct access to the central brain with no task overlay. Every other tab has a job. Coach tab just has a conversation.
+
+What it is: A free-form chat with the full brain. No workflow constraints, no specific task, no tab instruction beyond "speak freely." The athlete can ask anything — what patterns have you noticed, what do you think about my training, what would you change. The brain answers with everything it knows.
+Primary use during development: debugging surface. If the brain is working, the answers here will be sharp, specific, and longitudinal. If they're generic, something is wrong with the context layer.
+
