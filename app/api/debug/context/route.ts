@@ -11,7 +11,6 @@ const TAB_VALUES: TabType[] = [
   "coach",
   "today",
   "week",
-  "session",
   "season",
 ];
 
