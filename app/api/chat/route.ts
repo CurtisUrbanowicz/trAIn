@@ -4,6 +4,7 @@ import { buildContext, type TabType } from "@/lib/context";
 import { supabase } from "@/lib/supabase";
 import { tools } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
+import { pushLog } from "@/lib/debugLog";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 const MAX_TOOL_ITERATIONS = 5;
@@ -71,6 +72,8 @@ export async function POST(request: Request) {
       tab,
       localDate
     );
+
+    pushLog("context_loaded", { tab, contextBlockLength: contextBlock.length });
 
     const messagesForApi =
       message.trim() === ""
@@ -291,6 +294,8 @@ export async function POST(request: Request) {
             console.error("[chat] failed to save messages:", saveError);
           }
         } catch (streamErr) {
+          const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+          pushLog("error", { message: errMsg });
           console.error("[chat] streaming failed:", streamErr);
           controller.error(streamErr);
         }

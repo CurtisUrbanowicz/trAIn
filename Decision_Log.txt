@@ -149,6 +149,31 @@ Tab-specific instructions are allowed to re-emphasise principles that already li
 This is a weighting mechanism, not duplication. The brain carries the principle. The tab instruction turns up the volume where it matters most.
 Rejected: strict separation where tab instructions contain only net-new behaviour.
 
+
+Session tab merged into Today
+Decided: April 2026
+Session was removed as a standalone tab. The daily flow — calibrate, confirm, live coach, reflect — now happens in a single conversation on Today. The transition from pre-session to live coaching is triggered by the athlete confirming the plan (commit_today_plan fires). The AI reads the conversation to know which phase it's in rather than being told by a tab switch. Bottom nav goes from five tabs to four: Today, Week, Season, Coach. Today's tab instruction covers both the old today.md and session.md content, trimmed ~30% by removing redundancies with the brain. Historical messages with tab: "session" remain in the database unchanged.
+
+Loading screen tied to opener stream
+Decided: April 2026
+Loading screen previously dismissed on a fixed 2-3 second timer independent of the chat. Now dismisses when the first visible text from the opener starts streaming. Connected via a window event ("opener-started") dispatched from useChat when the first non-thinking text chunk arrives. Loading screen moved from layout.tsx to today/page.tsx — only the daily entry point needs it. If the API call fails, openerStarted fires anyway so the loading screen never hangs.
+Daily summary generation runs before opener, not in parallel
+
+Decided: April 2026
+Daily summaries are the primary memory layer — the opener's context loads the last 7 summaries to understand recent history. If yesterday's summary doesn't exist when the opener fires, the AI is blind to yesterday. Summary generation must complete before the opener fires, not run in parallel. The sequence: loading screen shows → /api/summarise generates missing summaries (up to 3, excluding today) → summariesReady flips true → useChat fires opener with fresh summaries in context → loading screen dismisses on first visible text. useChat accepts an enabled parameter (default true) so other tabs are unaffected.
+
+Sonnet over Haiku for daily summaries
+Decided: April 2026
+Considered Haiku for speed and cost (summaries run daily, behind a loading screen where speed matters). Chose Sonnet because the summary prompt requires inference, not just compression — connecting data to patterns, deciding what's signal vs noise, making observations about the athlete. A shallow summary doesn't just affect tomorrow, it affects every future conversation that reads it. Speed difference is ~1 second per summary, negligible behind a loading screen. Cost is one call per day, negligible in absolute terms. Optimise for quality of the memory layer, not speed.
+
+Unique constraint on daily_summaries (athlete_id, date)
+Decided: April 2026
+Added a unique constraint on (athlete_id, date) in the daily_summaries table. Primary motivation: race condition where Today tab unmounts and remounts quickly, firing two /api/summarise calls simultaneously. Both check the DB, both see no summary, both generate and write. The unique constraint ensures the second write fails at the DB level. Code-level idempotency checks handle 99% of cases, the constraint handles the race condition.
+
+Debug panel at /debug route
+Decided: April 2026
+Added an in-app debug panel accessible at /debug during development. Displays tool calls (name, params, result), daily summary generation (dates, output), context loaded, and errors. Built as a fully self-contained component (DebugPanel.tsx) with a global in-memory log array — no integration with ChatView, tabs, or the state architecture. Log calls are one-liners in route.ts and tool-executor.ts. To remove: delete the component, delete the import, search for debugLog and remove those lines. No structural dependencies. Chose /debug route over in-app gesture for simplicity during dev.
+
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.
 * How the end-of-session reflection gets triggered

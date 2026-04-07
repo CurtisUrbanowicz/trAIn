@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { getWeekStartMondayUtc } from "./context";
+import { pushLog } from "./debugLog";
 
 export type ToolContext = {
   athleteId: string;
@@ -600,36 +601,45 @@ export async function executeTool(
   input: Record<string, unknown>,
   context: ToolContext
 ): Promise<string> {
+  let result: string;
   switch (name) {
     // Retrieval
     case "get_history":
-      return getHistory(input, context);
+      result = await getHistory(input, context); break;
     case "get_weekly_plan":
-      return getWeeklyPlan(input, context);
+      result = await getWeeklyPlan(input, context); break;
     case "get_mesocycles":
-      return getMesocycles(context);
+      result = await getMesocycles(context); break;
     // Write
     case "log_readiness":
-      return logReadiness(input, context);
+      result = await logReadiness(input, context); break;
     case "update_athlete_profile":
-      return updateAthleteProfile(input, context);
+      result = await updateAthleteProfile(input, context); break;
     case "update_user_preferences":
-      return updateUserPreferences(input, context);
+      result = await updateUserPreferences(input, context); break;
     case "create_mesocycle":
-      return createMesocycle(input, context);
+      result = await createMesocycle(input, context); break;
     case "delete_log_entry":
-      return deleteLogEntry(input, context);
+      result = await deleteLogEntry(input, context); break;
     case "update_log_entry":
-      return updateLogEntry(input, context);
+      result = await updateLogEntry(input, context); break;
     case "log_sets":
-      return logSets(input, context);
+      result = await logSets(input, context); break;
     case "log_run":
-      return logRun(input, context);
+      result = await logRun(input, context); break;
     case "commit_weekly_plan":
-      return commitWeeklyPlan(input, context);
+      result = await commitWeeklyPlan(input, context); break;
     case "commit_today_plan":
-      return commitTodayPlan(input, context);
+      result = await commitTodayPlan(input, context); break;
     default:
-      return `Unknown tool: ${name}`;
+      result = `Unknown tool: ${name}`;
   }
+
+  pushLog("tool_call", {
+    name,
+    input,
+    result: result.length > 200 ? result.slice(0, 200) + "…" : result,
+  });
+
+  return result;
 }

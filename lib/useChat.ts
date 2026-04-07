@@ -16,7 +16,7 @@ export type Message = {
   content: string;
 };
 
-export function useChat(tab: string) {
+export function useChat(tab: string, enabled = true) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -98,8 +98,9 @@ export function useChat(tab: string) {
     [updateLastAssistant]
   );
 
-  // Auto-opener on mount — hydrate from Supabase first
+  // Auto-opener — hydrate from Supabase first, waits for enabled
   useEffect(() => {
+    if (!enabled) return;
     if (openerRef.current) return;
     openerRef.current = true;
 
@@ -162,7 +163,7 @@ export function useChat(tab: string) {
         setLoading(false);
       }
     })();
-  }, [tab, processStream]);
+  }, [tab, enabled, processStream]);
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || loading) return;

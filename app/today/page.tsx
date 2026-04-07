@@ -13,14 +13,19 @@ interface Plan {
   exercises: (string | { name: string })[] | null;
 }
 
+function getLocalDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function TodayPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [ready, setReady] = useState(false);
+  const [summariesReady, setSummariesReady] = useState(false);
 
+  // Fetch today's plan
   useEffect(() => {
-    const today = new Date();
-    const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
+    const localDate = getLocalDate();
     supabase
       .from("plans")
       .select("session_type, exercises")
@@ -42,6 +47,28 @@ export default function TodayPage() {
       });
   }, []);
 
+  // Generate summaries for unsummarised dates, then enable the opener
+  useEffect(() => {
+    const localDate = getLocalDate();
+    fetch("/api/summarise", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ athleteId: ATHLETE_ID, localDate }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.generated > 0) {
+          console.log(`[summarise] generated ${data.generated} summaries`);
+        }
+      })
+      .catch((err) => {
+        console.error("[summarise] failed:", err);
+      })
+      .finally(() => {
+        setSummariesReady(true);
+      });
+  }, []);
+
   // Listen for opener-started event from useChat
   useEffect(() => {
     const handler = () => setReady(true);
@@ -52,7 +79,7 @@ export default function TodayPage() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <LoadingScreen ready={ready} />
-      <ChatView tab="today">
+      <ChatView tab="today" enabled={summariesReady}>
         {plan && (
           <div
             style={{

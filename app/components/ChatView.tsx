@@ -7,11 +7,12 @@ import { ArrowUp } from "lucide-react";
 interface ChatViewProps {
   tab: string;
   children?: React.ReactNode;
+  enabled?: boolean;
 }
 
-export default function ChatView({ tab, children }: ChatViewProps) {
+export default function ChatView({ tab, children, enabled = true }: ChatViewProps) {
   const { messages, input, setInput, sendMessage, loading, thinking } =
-    useChat(tab);
+    useChat(tab, enabled);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
