@@ -413,8 +413,8 @@ export default function SeasonPage() {
                           fontSize: 12,
                           color: "#EDEDEF",
                         }}
-                        labelFormatter={(v: string) => v}
-                        formatter={(value: number) => [`${value} kg`, "Weight"]}
+                        labelFormatter={(v: any) => String(v)}
+                        formatter={(value: any) => [`${value} kg`, "Weight"]}
                       />
                       <Line
                         type="monotone"
@@ -513,7 +513,7 @@ export default function SeasonPage() {
                           fontSize: 12,
                           color: "#EDEDEF",
                         }}
-                        formatter={(value: number) => [`${value} km`, "Distance"]}
+                        formatter={(value: any) => [`${value} km`, "Distance"]}
                       />
                       <Bar
                         dataKey="km"
