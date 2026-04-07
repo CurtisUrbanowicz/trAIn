@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabase";
+
 export type DebugEntryType =
   | "tool_call"
   | "tool_result"
@@ -11,18 +13,39 @@ export interface DebugEntry {
   data: Record<string, unknown>;
 }
 
-const log: DebugEntry[] = [];
-
 export function pushLog(type: DebugEntryType, data: Record<string, unknown>) {
-  log.push({ timestamp: new Date().toISOString(), type, data });
-  // Cap at 500 entries to avoid unbounded growth
-  if (log.length > 500) log.splice(0, log.length - 500);
+  try {
+    supabase
+      .from("debug_log")
+      .insert({ type, data, timestamp: new Date().toISOString() })
+      .then(({ error }) => {
+        if (error) console.error("[debugLog] insert failed:", error.message);
+      });
+  } catch {
+    // Silently fail — debug log must never break the app
+  }
 }
 
-export function getLog(): DebugEntry[] {
-  return log;
+export async function getLog(): Promise<DebugEntry[]> {
+  const { data, error } = await supabase
+    .from("debug_log")
+    .select("timestamp, type, data")
+    .order("timestamp", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error("[debugLog] getLog failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row: { timestamp: string; type: string; data: Record<string, unknown> }) => ({
+    timestamp: row.timestamp,
+    type: row.type as DebugEntryType,
+    data: row.data,
+  }));
 }
 
-export function clearLog() {
-  log.length = 0;
+export async function clearLog(): Promise<void> {
+  const { error } = await supabase.from("debug_log").delete().gte("id", 0);
+  if (error) console.error("[debugLog] clearLog failed:", error.message);
 }
