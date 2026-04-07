@@ -137,7 +137,7 @@ export async function getActiveMesocycle(
 export async function getCurrentWeeklyPlan(
   athleteId: string,
   weekStart: string
-): Promise<{ days: any } | null> {
+): Promise<{ days: Record<string, { session_type?: string; notes?: string }> } | null> {
   const { data, error } = await supabase
     .from("weekly_plans")
     .select("days")
