@@ -150,7 +150,7 @@ export default function SeasonPage() {
     };
 
     fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   // ── Meso progress ───────────────────────────────────────────

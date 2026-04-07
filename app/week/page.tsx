@@ -125,7 +125,7 @@ export default function WeekPage() {
         setCompletedDates(dates);
       }
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   const thisWeekDays = weekData[0] ?? null;

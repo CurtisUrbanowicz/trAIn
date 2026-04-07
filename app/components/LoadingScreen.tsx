@@ -97,7 +97,7 @@ export default function LoadingScreen({ ready }: LoadingScreenProps) {
       });
 
     return () => clearTimeout(timeout);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Dismiss when parent signals ready
   useEffect(() => {
