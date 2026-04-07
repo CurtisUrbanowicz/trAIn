@@ -14,7 +14,6 @@ const TAB_VALUES = new Set<TabType>([
   "coach",
   "today",
   "week",
-  "session",
   "season",
 ]);
 

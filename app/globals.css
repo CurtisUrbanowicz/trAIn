@@ -9,7 +9,7 @@
   --bg-surface-hover: rgba(255, 255, 255, 0.08);
 
   /* Chat bubbles */
-  --bg-coach-bubble: rgba(255, 255, 255, 0.05);
+  --bg-coach-bubble: rgba(255, 255, 255, 0.08);
   --bg-athlete-bubble: rgba(94, 106, 210, 0.12);
 
   /* Text */
@@ -22,8 +22,8 @@
   --accent-hover: #6872d9;
 
   /* Borders */
-  --border-default: rgba(255, 255, 255, 0.06);
-  --border-hover: rgba(255, 255, 255, 0.1);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-hover: rgba(255, 255, 255, 0.14);
 }
 
 body {

@@ -2,13 +2,12 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Calendar, TrendingUp, Play, MessageCircle } from "lucide-react";
+import { Sun, Calendar, TrendingUp, MessageCircle } from "lucide-react";
 
 const tabs = [
   { name: "Today", href: "/today", icon: Sun },
   { name: "Week", href: "/week", icon: Calendar },
   { name: "Season", href: "/season", icon: TrendingUp },
-  { name: "Session", href: "/session", icon: Play },
   { name: "Coach", href: "/coach", icon: MessageCircle },
 ] as const;
 
@@ -33,7 +32,11 @@ export default function BottomNav() {
               key={href}
               href={href}
               className="flex flex-col items-center gap-0.5"
-              style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}
+              style={{
+                color: active ? "var(--accent)" : "var(--text-muted)",
+                borderTop: active ? "2px solid var(--accent)" : "2px solid transparent",
+                paddingTop: 6,
+              }}
             >
               <Icon size={20} strokeWidth={1.75} />
               <span style={{ fontSize: "10px", fontWeight: 500 }}>{name}</span>

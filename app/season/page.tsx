@@ -245,7 +245,7 @@ export default function SeasonPage() {
               style={{
                 background: "var(--bg-surface)",
                 borderRadius: 12,
-                border: "0.5px solid var(--border-default)",
+                border: "1px solid var(--border-default)",
                 padding: "10px 16px",
               }}
             >

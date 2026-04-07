@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import BottomNav from "./components/BottomNav";
-import LoadingScreen from "./components/LoadingScreen";
 import "./globals.css";
 
 const inter = Inter({
@@ -23,7 +22,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} antialiased flex flex-col h-dvh overflow-hidden`}>
-        <LoadingScreen />
         <main className="flex-1 overflow-y-auto flex flex-col">
           {children}
         </main>

@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
+const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 
 function getLocalDate(): string {
   return new Date().toLocaleDateString("en-CA");
@@ -19,9 +21,15 @@ export function useChat(tab: string) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [thinking, setThinking] = useState<string | null>(null);
+  const [openerStarted, setOpenerStarted] = useState(false);
   const openerRef = useRef(false);
+  const isOpenerStream = useRef(false);
 
   const updateLastAssistant = useCallback((content: string) => {
+    if (content && isOpenerStream.current) {
+      setOpenerStarted(true);
+      window.dispatchEvent(new Event("opener-started"));
+    }
     setMessages((prev) => {
       const updated = [...prev];
       const last = updated[updated.length - 1];
@@ -90,7 +98,7 @@ export function useChat(tab: string) {
     [updateLastAssistant]
   );
 
-  // Auto-opener on mount
+  // Auto-opener on mount — hydrate from Supabase first
   useEffect(() => {
     if (openerRef.current) return;
     openerRef.current = true;
@@ -98,18 +106,49 @@ export function useChat(tab: string) {
     void (async () => {
       setLoading(true);
       try {
+        // Check for existing messages today for this tab
+        const localDate = getLocalDate();
+        const { data: saved } = await supabase
+          .from("messages")
+          .select("role, content")
+          .eq("athlete_id", ATHLETE_ID)
+          .eq("date", localDate)
+          .eq("tab", tab)
+          .order("timestamp", { ascending: true });
+
+        if (saved && saved.length > 0) {
+          // Hydrate from persisted messages — skip opener
+          const hydrated: Message[] = saved
+            .filter((m: { role: string; content: string }) => m.content.trim() !== "")
+            .map((m: { role: string; content: string }) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            }));
+          setMessages(hydrated);
+          setOpenerStarted(true);
+          window.dispatchEvent(new Event("opener-started"));
+          setLoading(false);
+          return;
+        }
+
+        // No existing messages — fire auto-opener
+        isOpenerStream.current = true;
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: "",
-            localDate: getLocalDate(),
+            localDate,
             tab,
           }),
         });
         if (!response.ok) throw new Error(`API error: ${response.status}`);
         await processStream(response);
+        isOpenerStream.current = false;
       } catch (err) {
+        isOpenerStream.current = false;
+        setOpenerStarted(true);
+        window.dispatchEvent(new Event("opener-started"));
         setThinking(null);
         setMessages((prev) => {
           const last = prev[prev.length - 1];
@@ -166,5 +205,5 @@ export function useChat(tab: string) {
     }
   }, [input, loading, messages, tab, processStream]);
 
-  return { messages, input, setInput, sendMessage, loading, thinking };
+  return { messages, input, setInput, sendMessage, loading, thinking, openerStarted };
 }

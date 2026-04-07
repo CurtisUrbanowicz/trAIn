@@ -582,7 +582,7 @@ async function commitTodayPlan(
     timestamp: new Date().toISOString(),
   };
   if (input.notes != null) row.notes = input.notes;
-  row.exercises = input.exercises != null ? JSON.stringify(input.exercises) : null;
+  row.exercises = input.exercises != null ? input.exercises : null;
 
   const { error } = await supabase.from("plans").insert(row);
   if (error) return `Error committing today's plan: ${error.message}`;

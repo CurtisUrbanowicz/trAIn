@@ -16,8 +16,12 @@ function daysBetween(a: string, b: string): number {
   );
 }
 
-export default function LoadingScreen() {
-  const [state, setState] = useState<"pending" | "visible" | "fading" | "hidden">("pending");
+interface LoadingScreenProps {
+  ready?: boolean;
+}
+
+export default function LoadingScreen({ ready }: LoadingScreenProps) {
+  const [state, setState] = useState<"visible" | "fading" | "hidden">("hidden");
   const [subtitle, setSubtitle] = useState<string | null>(null);
   const dismissed = useRef(false);
 
@@ -29,19 +33,14 @@ export default function LoadingScreen() {
     setTimeout(() => setState("hidden"), 300);
   }, []);
 
+  // Show only on first open of the day
   useEffect(() => {
     const lastOpen = localStorage.getItem("lastOpenDate");
-    if (lastOpen === todayStr()) {
-      setState("hidden");
-      return;
-    }
-
+    if (lastOpen === todayStr()) return; // stay hidden
     setState("visible");
 
-    // Show fallback immediately, then try to upgrade with Supabase data
-    const timeout = setTimeout(() => {
-      setSubtitle(FALLBACK);
-    }, 300);
+    // Show fallback after brief delay, then try to upgrade with Supabase data
+    const timeout = setTimeout(() => setSubtitle(FALLBACK), 300);
 
     const today = todayStr();
     Promise.all([
@@ -100,12 +99,10 @@ export default function LoadingScreen() {
     return () => clearTimeout(timeout);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-dismiss 2s after subtitle renders
+  // Dismiss when parent signals ready
   useEffect(() => {
-    if (!subtitle) return;
-    const timer = setTimeout(dismiss, 3000);
-    return () => clearTimeout(timer);
-  }, [subtitle, dismiss]);
+    if (ready && state === "visible") dismiss();
+  }, [ready, state, dismiss]);
 
   if (state === "hidden") return null;
 

@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { formatSessionType } from "@/lib/format";
 import ChatView from "@/app/components/ChatView";
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronUp, Check } from "lucide-react";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 
@@ -37,13 +38,6 @@ function addDays(ymd: string, days: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function formatMonday(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const date = new Date(y!, m! - 1, d!);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `Mon, ${months[date.getMonth()]} ${date.getDate()}`;
-}
-
 function getTodayYmd(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -57,20 +51,30 @@ function formatDayDate(ymd: string): string {
   return `${SHORT_DAYS[dayIdx]} ${months[date.getMonth()]} ${date.getDate()}`;
 }
 
+function isTrainingDay(entry?: DayEntry): boolean {
+  return !!entry?.session_type && entry.session_type !== "rest" && entry.session_type !== "Rest";
+}
+
+function countPlanned(days: WeekDays | null): number {
+  if (!days) return 0;
+  return DAY_KEYS.filter((k) => isTrainingDay(days[k])).length;
+}
+
 export default function WeekPage() {
-  const [weekIndex, setWeekIndex] = useState(0); // 0 = this week, 1 = next week
-  const [expanded, setExpanded] = useState(false);
+  const [thisExpanded, setThisExpanded] = useState(false);
+  const [nextExpanded, setNextExpanded] = useState(false);
   const [weekData, setWeekData] = useState<Record<number, WeekDays | null>>({});
+  const [completedDates, setCompletedDates] = useState<Set<string>>(new Set());
 
   const today = getTodayYmd();
   const thisMonday = getMonday(new Date());
   const nextMonday = addDays(thisMonday, 7);
+  const nextSunday = addDays(nextMonday, 6);
   const mondays = [thisMonday, nextMonday];
-  const activeMonday = mondays[weekIndex]!;
 
   useEffect(() => {
-    // Fetch both weeks in parallel
-    Promise.all(
+    // Fetch both weekly plans
+    const plansPromise = Promise.all(
       mondays.map((monday) =>
         supabase
           .from("weekly_plans")
@@ -84,159 +88,158 @@ export default function WeekPage() {
             return { monday, days };
           })
       )
-    ).then((results) => {
-      const map: Record<number, WeekDays | null> = {};
-      results.forEach((r) => {
-        const idx = mondays.indexOf(r.monday);
-        if (idx !== -1) map[idx] = r.days;
-      });
-      setWeekData(map);
-    });
+    );
+
+    // Fetch completed sessions across both weeks in a single range per table
+    const runsPromise = supabase
+      .from("runs")
+      .select("date")
+      .eq("athlete_id", ATHLETE_ID)
+      .gte("date", thisMonday)
+      .lte("date", nextSunday);
+
+    const setsPromise = supabase
+      .from("sets")
+      .select("date")
+      .eq("athlete_id", ATHLETE_ID)
+      .gte("date", thisMonday)
+      .lte("date", nextSunday);
+
+    Promise.all([plansPromise, runsPromise, setsPromise]).then(
+      ([planResults, runsResult, setsResult]) => {
+        // Week plans
+        const map: Record<number, WeekDays | null> = {};
+        planResults.forEach((r) => {
+          const idx = mondays.indexOf(r.monday);
+          if (idx !== -1) map[idx] = r.days;
+        });
+        setWeekData(map);
+
+        // Auto-expand current week if it has a plan
+        if (map[0]) setThisExpanded(true);
+
+        // Completed dates
+        const dates = new Set<string>();
+        runsResult.data?.forEach((r: { date: string }) => dates.add(r.date));
+        setsResult.data?.forEach((r: { date: string }) => dates.add(r.date));
+        setCompletedDates(dates);
+      }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const days = weekData[weekIndex] ?? null;
-  const trainingCount = days
-    ? DAY_KEYS.filter((k) => days[k]?.session_type && days[k]!.session_type !== "rest" && days[k]!.session_type !== "Rest").length
-    : 0;
+  const thisWeekDays = weekData[0] ?? null;
+  const nextWeekDays = weekData[1] ?? null;
+  const thisCount = countPlanned(thisWeekDays);
+  const nextCount = countPlanned(nextWeekDays);
+
+  function renderSection(
+    label: string,
+    days: WeekDays | null,
+    count: number,
+    monday: string,
+    expanded: boolean,
+    setExpanded: (v: boolean) => void
+  ) {
+    return (
+      <div
+        style={{
+          background: "var(--bg-surface)",
+          borderRadius: 12,
+          border: "1px solid var(--border-default)",
+          overflow: "hidden",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            width: "100%",
+            padding: "12px 16px",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            gap: 8,
+          }}
+        >
+          <span
+            style={{
+              flex: 1,
+              fontSize: 13,
+              fontWeight: 600,
+              color: days ? "var(--text-primary)" : "var(--text-muted)",
+              textAlign: "left",
+            }}
+          >
+            {label} — {count > 0 ? `${count} planned` : "none planned"}
+          </span>
+          <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center" }}>
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </span>
+        </button>
+
+        {expanded && days && (
+          <div style={{ padding: "0 8px 8px" }}>
+            {DAY_KEYS.map((key, i) => {
+              const dateYmd = addDays(monday, i);
+              const entry = days[key];
+              const training = isTrainingDay(entry);
+              const isToday = dateYmd === today;
+              const completed = completedDates.has(dateYmd);
+
+              return (
+                <div
+                  key={key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    height: 40,
+                    padding: "0 12px",
+                    borderRadius: 8,
+                    background: training ? "var(--bg-surface)" : "transparent",
+                    borderLeft: isToday ? "2px solid var(--accent)" : "2px solid transparent",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: training ? "var(--text-primary)" : "var(--text-muted)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    {formatDayDate(dateYmd)}
+                    {completed && (
+                      <Check size={14} style={{ color: "#22c55e" }} strokeWidth={2.5} />
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: training ? "var(--text-primary)" : "var(--text-muted)",
+                    }}
+                  >
+                    {entry?.session_type ? formatSessionType(entry.session_type) : "Rest"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <ChatView tab="week">
-        {/* Week bar — always visible */}
-        <div
-          style={{
-            background: "var(--bg-surface)",
-            borderRadius: 12,
-            border: "0.5px solid var(--border-default)",
-            marginBottom: 16,
-            overflow: "hidden",
-          }}
-        >
-          {/* Collapsed header row */}
-          <button
-            type="button"
-            onClick={() => days && setExpanded((e) => !e)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              width: "100%",
-              padding: "12px 16px",
-              background: "transparent",
-              border: "none",
-              cursor: days ? "pointer" : "default",
-              gap: 8,
-            }}
-          >
-            {/* Left/right week arrows */}
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                if (weekIndex > 0) {
-                  setWeekIndex(0);
-                  setExpanded(false);
-                }
-              }}
-              style={{
-                color: weekIndex > 0 ? "var(--text-primary)" : "var(--text-muted)",
-                opacity: weekIndex > 0 ? 1 : 0.3,
-                cursor: weekIndex > 0 ? "pointer" : "default",
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              <ChevronLeft size={16} />
-            </span>
-
-            {/* Week label */}
-            <span
-              style={{
-                flex: 1,
-                fontSize: 13,
-                fontWeight: 600,
-                color: days ? "var(--text-primary)" : "var(--text-muted)",
-                textAlign: "left",
-              }}
-            >
-              Week of {formatMonday(activeMonday)}
-              {days
-                ? ` — ${trainingCount} session${trainingCount !== 1 ? "s" : ""} planned`
-                : " — no sessions planned"}
-            </span>
-
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                if (weekIndex < 1) {
-                  setWeekIndex(1);
-                  setExpanded(false);
-                }
-              }}
-              style={{
-                color: weekIndex < 1 ? "var(--text-primary)" : "var(--text-muted)",
-                opacity: weekIndex < 1 ? 1 : 0.3,
-                cursor: weekIndex < 1 ? "pointer" : "default",
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              <ChevronRight size={16} />
-            </span>
-
-            {days && (
-              <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center" }}>
-                {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </span>
-            )}
-          </button>
-
-          {/* Expanded day list */}
-          {expanded && days && (
-            <div style={{ padding: "0 8px 8px" }}>
-              {DAY_KEYS.map((key, i) => {
-                const dateYmd = addDays(activeMonday, i);
-                const entry = days[key];
-                const isTraining =
-                  entry?.session_type &&
-                  entry.session_type !== "rest" &&
-                  entry.session_type !== "Rest";
-                const isToday = dateYmd === today;
-
-                return (
-                  <div
-                    key={key}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      height: 40,
-                      padding: "0 12px",
-                      borderRadius: 8,
-                      background: isTraining ? "var(--bg-surface)" : "transparent",
-                      borderLeft: isToday ? "2px solid var(--accent)" : "2px solid transparent",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        color: isTraining ? "var(--text-primary)" : "var(--text-muted)",
-                      }}
-                    >
-                      {formatDayDate(dateYmd)}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        color: isTraining ? "var(--text-primary)" : "var(--text-muted)",
-                      }}
-                    >
-                      {entry?.session_type ?? "Rest"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+          {renderSection("This week", thisWeekDays, thisCount, thisMonday, thisExpanded, setThisExpanded)}
+          {renderSection("Next week", nextWeekDays, nextCount, nextMonday, nextExpanded, setNextExpanded)}
         </div>
       </ChatView>
     </div>

@@ -57,9 +57,18 @@ export default function ChatView({ tab, children }: ChatViewProps) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Sticky children slot */}
+      {children && (
+        <div
+          className="shrink-0 px-4 pt-4"
+          style={{ borderBottom: "0.5px solid var(--border-default)" }}
+        >
+          {children}
+        </div>
+      )}
+
       {/* Message area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
-        {children}
         {messages.map((msg, i) => {
           const prev: Message | undefined = messages[i - 1];
           const sameSender = prev?.role === msg.role;

@@ -31,7 +31,7 @@ function addUtcCalendarDays(ymd: string, deltaDays: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-export type TabType = "coach" | "today" | "week" | "session" | "season";
+export type TabType = "coach" | "today" | "week" | "season";
 
 export type ContextResult = {
   systemPrompt: string;
