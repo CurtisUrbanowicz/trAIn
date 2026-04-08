@@ -135,6 +135,13 @@ export async function POST(request: Request) {
             }
           }
 
+          const initialFinalMsg = await initialStream.finalMessage();
+          pushLog("cache_usage", {
+            input_tokens: initialFinalMsg.usage.input_tokens,
+            cache_write: initialFinalMsg.usage.cache_creation_input_tokens,
+            cache_read: initialFinalMsg.usage.cache_read_input_tokens,
+          });
+
           if (!hasToolUse) {
             // No tools — streamed text is the final response
             fullResponse = streamedText;
