@@ -96,6 +96,12 @@ export async function POST(request: Request) {
     // Mutable copy — tool results get appended during the loop
     const apiMessages: Anthropic.MessageParam[] = [...messagesForApi];
 
+    const toolsWithCache = tools.map((tool, i) =>
+      i === tools.length - 1
+        ? { ...tool, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+        : tool
+    );
+
     const readable = new ReadableStream({
       async start(controller) {
         try {
@@ -109,9 +115,9 @@ export async function POST(request: Request) {
           const initialStream = anthropic.messages.stream({
             model: "claude-sonnet-4-6",
             max_tokens: 10000,
-            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
             messages: apiMessages,
-            tools,
+            tools: toolsWithCache,
           });
 
           let hasToolUse = false;
@@ -180,9 +186,9 @@ export async function POST(request: Request) {
               const response = await anthropic.messages.create({
                 model: "claude-sonnet-4-6",
                 max_tokens: 10000,
-                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
                 messages: apiMessages,
-                tools,
+                tools: toolsWithCache,
               });
 
               const hasMoreTools = response.content.some(
@@ -253,9 +259,9 @@ export async function POST(request: Request) {
               const finalResponse = await anthropic.messages.create({
                 model: "claude-sonnet-4-6",
                 max_tokens: 10000,
-                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
                 messages: apiMessages,
-                tools,
+                tools: toolsWithCache,
               });
               for (const block of finalResponse.content) {
                 if (block.type === "text") {

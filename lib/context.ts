@@ -110,7 +110,8 @@ export async function getUserPreferences(
 }
 
 export async function getActiveMesocycle(
-  athleteId: string
+  athleteId: string,
+  localDate: string
 ): Promise<{
   start_date: string;
   end_date: string;
@@ -121,6 +122,8 @@ export async function getActiveMesocycle(
     .from("mesocycles")
     .select("start_date, end_date, goal, notes")
     .eq("athlete_id", athleteId)
+    .lte("start_date", localDate)
+    .gte("end_date", localDate)
     .order("timestamp", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -510,7 +513,7 @@ export async function buildContext(
     loadSystemPrompt(tab, localDate),
     getAthleteProfile(athleteId),
     getUserPreferences(athleteId),
-    getActiveMesocycle(athleteId),
+    getActiveMesocycle(athleteId, localDate),
     getCurrentWeeklyPlan(athleteId, weekStart),
     getTodaysReadiness(athleteId, localDate),
     getTodaysMessages(athleteId, localDate),
