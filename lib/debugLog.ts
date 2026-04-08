@@ -5,7 +5,8 @@ export type DebugEntryType =
   | "tool_result"
   | "summary_generated"
   | "context_loaded"
-  | "error";
+  | "error"
+  | "cache_usage";
 
 export interface DebugEntry {
   timestamp: string;
