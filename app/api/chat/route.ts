@@ -87,12 +87,6 @@ export async function POST(request: Request) {
     const anthropic = new Anthropic();
     const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate };
 
-    console.log("=== RAW API CALL ===");
-    console.log("MODEL:", "claude-sonnet-4-6");
-    console.log("MAX_TOKENS:", 10000);
-    console.log("SYSTEM PROMPT:", JSON.stringify(systemPrompt));
-    console.log("MESSAGES:", JSON.stringify(messagesForApi));
-
     // Mutable copy — tool results get appended during the loop
     const apiMessages: Anthropic.MessageParam[] = [...messagesForApi];
 
