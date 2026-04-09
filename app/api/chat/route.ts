@@ -43,12 +43,14 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       message?: string;
       localDate?: string;
+      localTime?: string;
       tab?: string;
       history?: Array<{ role: string; content: string }>;
     };
 
     const message = body.message;
     const localDate = body.localDate;
+    const localTime = body.localTime;
     const tab = parseTab(body.tab);
 
     if (typeof message !== "string") {
@@ -70,7 +72,8 @@ export async function POST(request: Request) {
     const { systemPrompt, contextBlock } = await buildContext(
       ATHLETE_ID,
       tab,
-      localDate
+      localDate,
+      localTime
     );
 
     pushLog("context_loaded", { tab, contextBlockLength: contextBlock.length });

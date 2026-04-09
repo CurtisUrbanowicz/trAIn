@@ -11,6 +11,13 @@ function getLocalDate(): string {
   return new Date().toLocaleDateString("en-CA");
 }
 
+function getLocalTime(): string {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 export type Message = {
   role: "user" | "assistant";
   content: string;
@@ -140,6 +147,7 @@ export function useChat(tab: string, enabled = true) {
           body: JSON.stringify({
             message: "",
             localDate,
+            localTime: getLocalTime(),
             tab,
           }),
         });
@@ -185,6 +193,7 @@ export function useChat(tab: string, enabled = true) {
         body: JSON.stringify({
           message: userMessage,
           localDate: getLocalDate(),
+          localTime: getLocalTime(),
           tab,
           history: currentHistory,
         }),

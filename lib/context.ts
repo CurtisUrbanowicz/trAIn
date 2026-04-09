@@ -333,6 +333,7 @@ export function formatContext(
   tab: TabType,
   localDate: string,
   weekStart: string,
+  localTime: string | undefined,
   data: {
     profile: Awaited<ReturnType<typeof getAthleteProfile>>;
     preferences: Awaited<ReturnType<typeof getUserPreferences>>;
@@ -350,7 +351,7 @@ export function formatContext(
     `Fields marked as empty or "not yet set" simply mean no data exists yet — do not assume or infer values. Daily summaries are your primary memory of this athlete's recent training history. The context index at the end shows what deeper data is available beyond what's loaded here — retrieve via tool call when it would improve your response.`
   );
 
-  sections.push(`TODAY'S DATE: ${formatDate(localDate)}`);
+  sections.push(`TODAY'S DATE: ${formatDate(localDate)}${localTime ? ` ${localTime}` : ''}`);
 
   const thisMonday = getWeekStartMondayUtc(localDate);
   const nextMonday = getWeekStartMondayUtc(addUtcCalendarDays(localDate, 7));
@@ -495,7 +496,8 @@ export function getWeekStartMondayUtc(localDate: string): string {
 export async function buildContext(
   athleteId: string,
   tab: TabType,
-  localDate: string
+  localDate: string,
+  localTime?: string
 ): Promise<ContextResult> {
   const weekStart = getWeekStartMondayUtc(localDate);
 
@@ -612,7 +614,7 @@ export async function buildContext(
     );
   }
 
-  const contextBlock = formatContext(tab, localDate, weekStart, {
+  const contextBlock = formatContext(tab, localDate, weekStart, localTime, {
     profile,
     preferences,
     mesocycle,
