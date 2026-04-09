@@ -6,7 +6,8 @@ export type DebugEntryType =
   | "summary_generated"
   | "context_loaded"
   | "error"
-  | "cache_usage";
+  | "cache_usage"
+  | "model_used";
 
 export interface DebugEntry {
   timestamp: string;

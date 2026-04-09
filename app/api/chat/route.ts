@@ -87,6 +87,58 @@ export async function POST(request: Request) {
     const anthropic = new Anthropic();
     const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate };
 
+    // Model selection: try Sonnet, retry once on overloaded, then fall back
+    // to Haiku. The fallback decision is made on the first call only — every
+    // subsequent call in this request reuses the model the first call settled
+    // on, so we never switch mid-tool-loop.
+    type ModelName = "claude-sonnet-4-6" | "claude-haiku-4-5-20251001";
+    let currentModel: ModelName = "claude-sonnet-4-6";
+    let firstCallComplete = false;
+
+    const createMessage = async <T>(
+      fn: (model: ModelName) => Promise<T>
+    ): Promise<T> => {
+      if (firstCallComplete) {
+        const result = await fn(currentModel);
+        pushLog("model_used", { model: currentModel, attempt: 1 });
+        return result;
+      }
+
+      try {
+        const result = await fn("claude-sonnet-4-6");
+        pushLog("model_used", { model: "claude-sonnet-4-6", attempt: 1 });
+        firstCallComplete = true;
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.toLowerCase().includes("overloaded")) {
+          firstCallComplete = true;
+          throw err;
+        }
+
+        await new Promise((r) => setTimeout(r, 2000));
+
+        try {
+          const result = await fn("claude-sonnet-4-6");
+          pushLog("model_used", { model: "claude-sonnet-4-6", attempt: 2 });
+          firstCallComplete = true;
+          return result;
+        } catch (err2) {
+          const msg2 = err2 instanceof Error ? err2.message : String(err2);
+          if (!msg2.toLowerCase().includes("overloaded")) {
+            firstCallComplete = true;
+            throw err2;
+          }
+
+          currentModel = "claude-haiku-4-5-20251001";
+          const result = await fn(currentModel);
+          pushLog("model_used", { model: currentModel, attempt: 3 });
+          firstCallComplete = true;
+          return result;
+        }
+      }
+    }
+
     // Mutable copy — tool results get appended during the loop
     const apiMessages: Anthropic.MessageParam[] = [...messagesForApi];
 
@@ -106,36 +158,44 @@ export async function POST(request: Request) {
           // Text deltas pipe directly to the frontend. If the model
           // triggers tool use we detect it here and drop into the
           // non-streaming create() loop below.
-          const initialStream = anthropic.messages.stream({
-            model: "claude-sonnet-4-6",
-            max_tokens: 10000,
-            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
-            messages: apiMessages,
-            tools: toolsWithCache,
-          });
-
           let hasToolUse = false;
           let streamedText = "";
 
-          for await (const event of initialStream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              streamedText += event.delta.text;
-              controller.enqueue(
-                new TextEncoder().encode(event.delta.text)
-              );
-            }
-            if (
-              event.type === "content_block_start" &&
-              event.content_block.type === "tool_use"
-            ) {
-              hasToolUse = true;
-            }
-          }
+          const initialFinalMsg = await createMessage(async (model) => {
+            // Reset on retry — overloaded errors fire before any tokens
+            // stream, so we should be re-entering with a clean slate.
+            streamedText = "";
+            hasToolUse = false;
 
-          const initialFinalMsg = await initialStream.finalMessage();
+            const stream = anthropic.messages.stream({
+              model,
+              max_tokens: 10000,
+              system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
+              messages: apiMessages,
+              tools: toolsWithCache,
+            });
+
+            for await (const event of stream) {
+              if (
+                event.type === "content_block_delta" &&
+                event.delta.type === "text_delta"
+              ) {
+                streamedText += event.delta.text;
+                controller.enqueue(
+                  new TextEncoder().encode(event.delta.text)
+                );
+              }
+              if (
+                event.type === "content_block_start" &&
+                event.content_block.type === "tool_use"
+              ) {
+                hasToolUse = true;
+              }
+            }
+
+            return await stream.finalMessage();
+          });
+
           pushLog("cache_usage", {
             input_tokens: initialFinalMsg.usage.input_tokens,
             cache_write: initialFinalMsg.usage.cache_creation_input_tokens,
@@ -151,19 +211,17 @@ export async function POST(request: Request) {
               new TextEncoder().encode(THINKING_DELIMITER)
             );
 
-            const initialMessage = await initialStream.finalMessage();
-
             // Append the assistant turn (text + tool_use blocks)
             apiMessages.push({
               role: "assistant" as const,
               content:
-                initialMessage.content as Anthropic.Messages.ContentBlockParam[],
+                initialFinalMsg.content as Anthropic.Messages.ContentBlockParam[],
             });
 
             // Execute the tool calls from the initial response
             const initialToolResults: Anthropic.Messages.ToolResultBlockParam[] =
               [];
-            for (const block of initialMessage.content) {
+            for (const block of initialFinalMsg.content) {
               if (block.type === "tool_use") {
                 const result = await safeExecuteTool(
                   block.name,
@@ -184,13 +242,15 @@ export async function POST(request: Request) {
 
             // Subsequent iterations use create() — no streaming
             for (let i = 1; i < MAX_TOOL_ITERATIONS; i++) {
-              const response = await anthropic.messages.create({
-                model: "claude-sonnet-4-6",
-                max_tokens: 10000,
-                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
-                messages: apiMessages,
-                tools: toolsWithCache,
-              });
+              const response = await createMessage((model) =>
+                anthropic.messages.create({
+                  model,
+                  max_tokens: 10000,
+                  system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
+                  messages: apiMessages,
+                  tools: toolsWithCache,
+                })
+              );
 
               const hasMoreTools = response.content.some(
                 (b) => b.type === "tool_use"
@@ -257,13 +317,15 @@ export async function POST(request: Request) {
               controller.enqueue(
                 new TextEncoder().encode(FINAL_DELIMITER)
               );
-              const finalResponse = await anthropic.messages.create({
-                model: "claude-sonnet-4-6",
-                max_tokens: 10000,
-                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
-                messages: apiMessages,
-                tools: toolsWithCache,
-              });
+              const finalResponse = await createMessage((model) =>
+                anthropic.messages.create({
+                  model,
+                  max_tokens: 10000,
+                  system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
+                  messages: apiMessages,
+                  tools: toolsWithCache,
+                })
+              );
               for (const block of finalResponse.content) {
                 if (block.type === "text") {
                   fullResponse += block.text;
