@@ -72,7 +72,7 @@ export default function WeekPage() {
   const nextSunday = addDays(nextMonday, 6);
   const mondays = [thisMonday, nextMonday];
 
-  useEffect(() => {
+  const fetchWeekData = () => {
     // Fetch both weekly plans
     const plansPromise = Promise.all(
       mondays.map((monday) =>
@@ -125,7 +125,21 @@ export default function WeekPage() {
         setCompletedDates(dates);
       }
     );
+  };
 
+  useEffect(() => {
+    fetchWeekData();
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('week-plan')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'weekly_plans', filter: `athlete_id=eq.${ATHLETE_ID}` },
+        () => fetchWeekData()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const thisWeekDays = weekData[0] ?? null;

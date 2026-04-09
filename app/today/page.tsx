@@ -11,6 +11,7 @@ const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 interface Plan {
   session_type: string;
   exercises: (string | { name: string })[] | null;
+  notes: string | null;
 }
 
 function getLocalDate(): string {
@@ -24,11 +25,11 @@ export default function TodayPage() {
   const [summariesReady, setSummariesReady] = useState(false);
 
   // Fetch today's plan
-  useEffect(() => {
+  const fetchPlan = () => {
     const localDate = getLocalDate();
     supabase
       .from("plans")
-      .select("session_type, exercises")
+      .select("session_type, exercises, notes")
       .eq("athlete_id", ATHLETE_ID)
       .eq("date", localDate)
       .order("timestamp", { ascending: false })
@@ -42,9 +43,24 @@ export default function TodayPage() {
               : Array.isArray(raw.exercises)
                 ? raw.exercises
                 : [];
-          setPlan({ session_type: raw.session_type, exercises });
+          setPlan({ session_type: raw.session_type, exercises, notes: raw.notes });
         }
       });
+  };
+
+  useEffect(() => {
+    fetchPlan();
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('today-plan')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'plans', filter: `athlete_id=eq.${ATHLETE_ID}` },
+        () => fetchPlan()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Generate summaries for unsummarised dates, then enable the opener
@@ -100,6 +116,18 @@ export default function TodayPage() {
             >
               {formatSessionType(plan.session_type)}
             </p>
+            {plan.notes && (
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  margin: 0,
+                  lineHeight: 1.5,
+                }}
+              >
+                {plan.notes}
+              </p>
+            )}
             {plan.exercises && plan.exercises.length > 0 && (
               <div style={{ marginTop: 6 }}>
                 {plan.exercises.map((ex, i) => (
