@@ -2,6 +2,27 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { pushLog } from "@/lib/debugLog";
+import { getWeekStartMondayUtc } from "@/lib/context";
+
+const DAY_KEYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+
+function addUtcCalendarDays(ymd: string, deltaDays: number): string {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  const date = new Date(Date.UTC(y!, mo! - 1, d!));
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  const yy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -116,14 +137,16 @@ export async function POST(request: Request) {
 
         const systemPrompt = `You are writing your coaching notes for ${date}. Review everything that happened today across all conversations and training data.
 
-Write in first person as the coach. Use YYYY-MM-DD dates. Under 100 words.
+Write in first person as the coach. Use YYYY-MM-DD dates. No markdown formatting. Under 100 words.
 
-Include: specific sessions with actual numbers. How the athlete felt — their exact words where revealing. Recovery data if mentioned. Life context. Any plan changes and why. Any patterns or flags worth noting.
+Capture: specific sessions with actual numbers. How the athlete felt — preserve their exact words when they reveal something about who they are, what they believe about their training, or what they're feeling. Recovery data if mentioned. Life context. Plan changes and why.
+
+Flag anything that will make you a better coach to this athlete in the future — patterns forming, flags emerging, beliefs expressed, doubts voiced, breakthroughs happening.
 
 The bar: "Athlete said 'I just can't face the gym today' despite 81 HRV and 58 RHR — third time this month subjective fatigue has contradicted recovery metrics" is useful. "Athlete reported fatigue" is not.`;
 
         const response = await anthropic.messages.create({
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-4-6",
           max_tokens: 500,
           system: systemPrompt,
           messages: [
@@ -164,6 +187,98 @@ The bar: "Athlete said 'I just can't face the gym today' despite 81 HRV and 58 R
         pushLog("error", { date, message: errMsg });
         console.error(`[summarise] failed for ${date}:`, errMsg);
         // Continue to next date
+      }
+    }
+
+    // Gap-fill: synthesise summaries for planned days with no activity
+    const thisMonday = getWeekStartMondayUtc(localDate);
+    const prevMonday = addUtcCalendarDays(thisMonday, -7);
+
+    const { data: planRows } = await supabase
+      .from("weekly_plans")
+      .select("week_start, days")
+      .eq("athlete_id", athleteId)
+      .in("week_start", [thisMonday, prevMonday])
+      .order("timestamp", { ascending: false });
+
+    const latestByWeek = new Map<string, Record<string, { session_type?: string; notes?: string }>>();
+    for (const row of (planRows ?? []) as Array<{
+      week_start: string;
+      days: Record<string, { session_type?: string; notes?: string }>;
+    }>) {
+      if (!latestByWeek.has(row.week_start)) {
+        latestByWeek.set(row.week_start, row.days);
+      }
+    }
+
+    const candidates: Array<{ date: string; sessionType: string | undefined }> = [];
+    for (const [weekStart, days] of latestByWeek) {
+      DAY_KEYS.forEach((key, i) => {
+        const dayDate = addUtcCalendarDays(weekStart, i);
+        if (dayDate >= localDate) return;
+        candidates.push({ date: dayDate, sessionType: days?.[key]?.session_type });
+      });
+    }
+
+    for (const { date, sessionType } of candidates) {
+      try {
+        const [existingSummary, dayMessages, dayRuns, daySets] = await Promise.all([
+          supabase
+            .from("daily_summaries")
+            .select("date")
+            .eq("athlete_id", athleteId)
+            .eq("date", date)
+            .limit(1),
+          supabase
+            .from("messages")
+            .select("date")
+            .eq("athlete_id", athleteId)
+            .eq("date", date)
+            .limit(1),
+          supabase
+            .from("runs")
+            .select("date")
+            .eq("athlete_id", athleteId)
+            .eq("date", date)
+            .limit(1),
+          supabase
+            .from("sets")
+            .select("date")
+            .eq("athlete_id", athleteId)
+            .eq("date", date)
+            .limit(1),
+        ]);
+
+        if ((existingSummary.data ?? []).length > 0) continue;
+        if ((dayMessages.data ?? []).length > 0) continue;
+        if ((dayRuns.data ?? []).length > 0) continue;
+        if ((daySets.data ?? []).length > 0) continue;
+
+        if (!sessionType) continue;
+        const isRest = sessionType === "rest" || sessionType === "Rest";
+        const summary = isRest
+          ? "Rest day — planned."
+          : `Planned ${sessionType} — no activity logged.`;
+
+        const { error } = await supabase.from("daily_summaries").insert({
+          athlete_id: athleteId,
+          date,
+          summary,
+          timestamp: new Date().toISOString(),
+        });
+
+        if (error) {
+          console.error(`[summarise] gap-fill failed for ${date}:`, error.message);
+          pushLog("error", { date, message: error.message });
+        } else {
+          generated++;
+          pushLog("summary_gap_filled", { date, summary });
+          console.log(`[summarise] gap-filled summary for ${date}`);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        pushLog("error", { date, message: errMsg });
+        console.error(`[summarise] gap-fill error for ${date}:`, errMsg);
       }
     }
 
