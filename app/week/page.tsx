@@ -65,6 +65,7 @@ export default function WeekPage() {
   const [nextExpanded, setNextExpanded] = useState(false);
   const [weekData, setWeekData] = useState<Record<number, WeekDays | null>>({});
   const [completedDates, setCompletedDates] = useState<Set<string>>(new Set());
+  const [shouldNudge, setShouldNudge] = useState(false);
 
   const today = getTodayYmd();
   const thisMonday = getMonday(new Date());
@@ -117,6 +118,9 @@ export default function WeekPage() {
 
         // Auto-expand current week if it has a plan
         if (map[0]) setThisExpanded(true);
+
+        const dow = (new Date().getDay() + 6) % 7;
+        if (dow >= 3 && map[1] == null) setShouldNudge(true);
 
         // Completed dates
         const dates = new Set<string>();
@@ -250,7 +254,7 @@ export default function WeekPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ChatView tab="week">
+      <ChatView tab="week" autoOpen={shouldNudge}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
           {renderSection("This week", thisWeekDays, thisCount, thisMonday, thisExpanded, setThisExpanded)}
           {renderSection("Next week", nextWeekDays, nextCount, nextMonday, nextExpanded, setNextExpanded)}

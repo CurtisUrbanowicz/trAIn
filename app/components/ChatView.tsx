@@ -8,11 +8,12 @@ interface ChatViewProps {
   tab: string;
   children?: React.ReactNode;
   enabled?: boolean;
+  autoOpen?: boolean;
 }
 
-export default function ChatView({ tab, children, enabled = true }: ChatViewProps) {
+export default function ChatView({ tab, children, enabled = true, autoOpen = true }: ChatViewProps) {
   const { messages, input, setInput, sendMessage, loading, thinking } =
-    useChat(tab, enabled);
+    useChat(tab, enabled, autoOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 

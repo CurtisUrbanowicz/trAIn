@@ -23,7 +23,7 @@ export type Message = {
   content: string;
 };
 
-export function useChat(tab: string, enabled = true) {
+export function useChat(tab: string, enabled = true, autoOpen = true) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -139,7 +139,14 @@ export function useChat(tab: string, enabled = true) {
           return;
         }
 
-        // No existing messages — fire auto-opener
+        // No existing messages — only fire auto-opener if autoOpen is true
+        if (!autoOpen) {
+          setOpenerStarted(true);
+          window.dispatchEvent(new Event("opener-started"));
+          setLoading(false);
+          return;
+        }
+
         isOpenerStream.current = true;
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -171,7 +178,7 @@ export function useChat(tab: string, enabled = true) {
         setLoading(false);
       }
     })();
-  }, [tab, enabled, processStream]);
+  }, [tab, enabled, autoOpen, processStream]);
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || loading) return;
