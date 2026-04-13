@@ -322,7 +322,7 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "create_mesocycle",
     description:
-      "Create a new mesocycle. Only call after the athlete has confirmed the block goal and date range. The goal field should be rich and specific — capture frequency, session types, approach, and priorities in natural language. If key details like frequency, session types, or priorities weren't discussed, don't call this tool yet. All dates use YYYY-MM-DD format.",
+      "Create a new mesocycle. Only call after the athlete has confirmed the block goal and date range. Goal and notes combined should be under 200 words — capture targets, phase structure, and key constraints concisely. Limited narrative. If key details like frequency, session types, or priorities weren't discussed, don't call this tool yet. All dates use YYYY-MM-DD format.",
     input_schema: {
       type: "object",
       properties: {
@@ -345,6 +345,25 @@ export const tools: Anthropic.Tool[] = [
         },
       },
       required: ["start_date", "end_date", "goal"],
+    },
+  },
+  {
+    name: "days_between",
+    description:
+      "Returns the number of days between two dates. Use this to verify any time gap before stating it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date_from: {
+          type: "string",
+          description: "Start date (YYYY-MM-DD)",
+        },
+        date_to: {
+          type: "string",
+          description: "End date (YYYY-MM-DD)",
+        },
+      },
+      required: ["date_from", "date_to"],
     },
   },
 ];

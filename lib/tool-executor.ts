@@ -594,6 +594,17 @@ async function commitTodayPlan(
   return `Today's plan committed: ${sessionType}${suffix}`;
 }
 
+async function daysBetween(input: Record<string, unknown>): Promise<string> {
+  const dateFrom = input.date_from as string;
+  const dateTo = input.date_to as string;
+  const [yf, mf, df] = dateFrom.split("-").map(Number);
+  const [yt, mt, dt] = dateTo.split("-").map(Number);
+  const from = Date.UTC(yf!, mf! - 1, df!);
+  const to = Date.UTC(yt!, mt! - 1, dt!);
+  const diff = Math.abs(Math.round((to - from) / 86400000));
+  return `${diff} days`;
+}
+
 // ── Main dispatcher ─────────────────────────────────────────────
 
 export async function executeTool(
@@ -631,6 +642,8 @@ export async function executeTool(
       result = await commitWeeklyPlan(input, context); break;
     case "commit_today_plan":
       result = await commitTodayPlan(input, context); break;
+    case "days_between":
+      result = await daysBetween(input); break;
     default:
       result = `Unknown tool: ${name}`;
   }
