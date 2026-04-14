@@ -208,7 +208,7 @@ The bar: "Athlete said 'I just can't face the gym today' despite 81 HRV and 58 R
     }
 
     const candidates: Array<{ date: string; sessionType: string | undefined }> = [];
-    for (const [weekStart, days] of latestByWeek) {
+    for (const [weekStart, days] of Array.from(latestByWeek)) {
       DAY_KEYS.forEach((key, i) => {
         const dayDate = addUtcCalendarDays(weekStart, i);
         if (dayDate >= localDate) return;
