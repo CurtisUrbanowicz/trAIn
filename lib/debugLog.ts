@@ -4,6 +4,7 @@ export type DebugEntryType =
   | "tool_call"
   | "tool_result"
   | "summary_generated"
+  | "summary_gap_filled"
   | "context_loaded"
   | "error"
   | "cache_usage"
