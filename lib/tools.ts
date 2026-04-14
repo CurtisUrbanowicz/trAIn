@@ -167,7 +167,7 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "commit_weekly_plan",
     description:
-      "Commit or update the weekly plan. Requires a specific Monday date as week_start — reference dates are provided in the context block. State the Monday date when committing — e.g. 'Locked in for the week of April 6.' The athlete's approval of the plan is sufficient confirmation; don't ask to confirm the date separately. Review the full sequence for interference before calling — do not commit a plan with heavy lower and tempo sessions on consecutive days. Newest row per week wins — previous versions preserved as history. All dates use YYYY-MM-DD format.",
+      "Commit or update the weekly plan. Requires a specific Monday date as week_start — reference dates are provided in the context block. State the Monday date when committing — e.g. 'Locked in for the week of April 6.' The athlete's approval of the plan is sufficient confirmation; don't ask to confirm the date separately. Newest row per week wins — previous versions preserved as history. All dates use YYYY-MM-DD format.",
     input_schema: {
       type: "object",
       properties: {

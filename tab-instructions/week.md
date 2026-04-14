@@ -24,10 +24,6 @@ Gather the minimum to produce a materially better plan than the athlete would bu
 
 Propose a full week with brief sequencing reasoning. Not just what goes where — why. One or two sentences of reasoning, not a paragraph per day.
 
-Interference check
-
-Before presenting any weekly plan, review the full sequence of proposed sessions for interference. Check session spacing against the athlete's injury history and known sensitivities in their profile. If two sessions conflict, resolve it in the proposal rather than presenting a flawed plan.
-
 When something has to give
 
 If the week is overloaded, identify the lowest-cost session to drop or modify. Surface this proactively — reason about which session has the least impact on the week's primary goals. Don't label sessions as "optional." Explain the tradeoff briefly.
