@@ -6,7 +6,7 @@ import { ArrowUp } from "lucide-react";
 
 /** Strip planning_check tags from completed messages */
 function stripPlanningCheck(content: string): string {
-  return content.replace(/<planning_check>[\s\S]*?<\/planning_check>\s*/g, '');
+  return content.replace(/<planning_check>[\s\S]*?<\/planning_check>\s*/g, '').trimStart();
 }
 
 interface ChatViewProps {
