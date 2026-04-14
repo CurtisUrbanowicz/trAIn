@@ -87,6 +87,22 @@ export async function POST(request: Request) {
             { role: "user" as const, content: message },
           ];
 
+    // Save user message immediately (don't wait for AI response)
+    if (message.trim() !== "") {
+      try {
+        await supabase.from("messages").insert({
+          athlete_id: ATHLETE_ID,
+          date: localDate,
+          tab,
+          role: "user",
+          content: message,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error("[chat] failed to save user message:", err);
+      }
+    }
+
     const anthropic = new Anthropic();
     const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate };
 
@@ -345,28 +361,20 @@ export async function POST(request: Request) {
           // Strip planning check tags from persisted response
           fullResponse = fullResponse.replace(/<planning_check>[\s\S]*?<\/planning_check>\s*/g, '');
 
-          // Persist only the user message and final assistant text
-          try {
-            await supabase.from("messages").insert([
-              {
-                athlete_id: ATHLETE_ID,
-                date: localDate,
-                tab,
-                role: "user",
-                content: message,
-                timestamp: new Date().toISOString(),
-              },
-              {
+          // Persist assistant response (user message already saved above)
+          if (fullResponse.trim() !== "") {
+            try {
+              await supabase.from("messages").insert({
                 athlete_id: ATHLETE_ID,
                 date: localDate,
                 tab,
                 role: "assistant",
                 content: fullResponse,
                 timestamp: new Date().toISOString(),
-              },
-            ]);
-          } catch (saveError) {
-            console.error("[chat] failed to save messages:", saveError);
+              });
+            } catch (saveError) {
+              console.error("[chat] failed to save assistant message:", saveError);
+            }
           }
         } catch (streamErr) {
           const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
