@@ -70,10 +70,6 @@ export async function POST(request: Request) {
       .filter((d) => !summarisedDates.has(d))
       .slice(0, 3);
 
-    if (unsummarised.length === 0) {
-      return NextResponse.json({ generated: 0 });
-    }
-
     const anthropic = new Anthropic();
     let generated = 0;
 
