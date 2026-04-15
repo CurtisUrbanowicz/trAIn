@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildContext, type TabType } from "@/lib/context";
 import { supabase } from "@/lib/supabase";
-import { tools } from "@/lib/tools";
+import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
 
@@ -161,11 +161,7 @@ export async function POST(request: Request) {
     // Mutable copy — tool results get appended during the loop
     const apiMessages: Anthropic.MessageParam[] = [...messagesForApi];
 
-    const toolsWithCache = tools.map((tool, i) =>
-      i === tools.length - 1
-        ? { ...tool, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
-        : tool
-    );
+    const toolsForRequest = getToolsForTab(tab);
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -191,7 +187,7 @@ export async function POST(request: Request) {
               max_tokens: 10000,
               system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
               messages: apiMessages,
-              tools: toolsWithCache,
+              tools: toolsForRequest,
             });
 
             for await (const event of stream) {
@@ -267,7 +263,7 @@ export async function POST(request: Request) {
                   max_tokens: 10000,
                   system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
                   messages: apiMessages,
-                  tools: toolsWithCache,
+                  tools: toolsForRequest,
                 })
               );
 
@@ -342,7 +338,7 @@ export async function POST(request: Request) {
                   max_tokens: 10000,
                   system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
                   messages: apiMessages,
-                  tools: toolsWithCache,
+                  tools: toolsForRequest,
                 })
               );
               for (const block of finalResponse.content) {

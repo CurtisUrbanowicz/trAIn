@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { TabType } from "@/lib/context";
 
 const daySchema = {
   type: "object" as const,
@@ -367,3 +368,29 @@ export const tools: Anthropic.Tool[] = [
     },
   },
 ];
+
+const HOT_TOOLS: Record<TabType, Set<string>> = {
+  today: new Set(["get_history", "log_sets", "log_run", "commit_today_plan"]),
+  week: new Set(["get_history", "commit_weekly_plan", "get_weekly_plan", "days_between"]),
+  season: new Set(["get_history", "get_mesocycles", "create_mesocycle", "days_between"]),
+  coach: new Set(["get_history"]),
+};
+
+export function getToolsForTab(tab: TabType): Anthropic.ToolUnion[] {
+  const hot = HOT_TOOLS[tab];
+  const searchTool: Anthropic.ToolSearchToolRegex20251119 = {
+    type: "tool_search_tool_regex_20251119",
+    name: "tool_search_tool_regex",
+  };
+  const regular: Anthropic.Tool[] = tools.map((t) =>
+    hot.has(t.name) ? t : { ...t, defer_loading: true }
+  );
+  const result: Anthropic.ToolUnion[] = [searchTool, ...regular];
+  const lastIdx = result.length - 1;
+  const last = result[lastIdx]!;
+  result[lastIdx] = {
+    ...last,
+    cache_control: { type: "ephemeral", ttl: "1h" },
+  } as Anthropic.ToolUnion;
+  return result;
+}
