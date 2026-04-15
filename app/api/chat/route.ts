@@ -356,8 +356,6 @@ export async function POST(request: Request) {
             }
           }
 
-          controller.close();
-
           // Strip planning check tags from persisted response
           fullResponse = fullResponse.replace(/<planning_check>[\s\S]*?<\/planning_check>\s*/g, '');
 
@@ -376,6 +374,8 @@ export async function POST(request: Request) {
               console.error("[chat] failed to save assistant message:", saveError);
             }
           }
+
+          controller.close();
         } catch (streamErr) {
           const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
           pushLog("error", { message: errMsg });
