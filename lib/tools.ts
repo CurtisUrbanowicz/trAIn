@@ -385,12 +385,18 @@ export function getToolsForTab(tab: TabType): Anthropic.ToolUnion[] {
   const regular: Anthropic.Tool[] = tools.map((t) =>
     hot.has(t.name) ? t : { ...t, defer_loading: true }
   );
-  const result: Anthropic.ToolUnion[] = [searchTool, ...regular];
-  const lastIdx = result.length - 1;
-  const last = result[lastIdx]!;
-  result[lastIdx] = {
-    ...last,
-    cache_control: { type: "ephemeral", ttl: "1h" },
-  } as Anthropic.ToolUnion;
-  return result;
+  let lastHotIdx = -1;
+  for (let i = regular.length - 1; i >= 0; i--) {
+    if (!regular[i]!.defer_loading) {
+      lastHotIdx = i;
+      break;
+    }
+  }
+  if (lastHotIdx !== -1) {
+    regular[lastHotIdx] = {
+      ...regular[lastHotIdx]!,
+      cache_control: { type: "ephemeral", ttl: "1h" },
+    };
+  }
+  return [searchTool, ...regular];
 }
