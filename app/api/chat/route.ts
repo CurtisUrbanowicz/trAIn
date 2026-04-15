@@ -356,9 +356,6 @@ export async function POST(request: Request) {
             }
           }
 
-          // Strip planning check tags from persisted response
-          fullResponse = fullResponse.replace(/<planning_check>[\s\S]*?<\/planning_check>\s*/g, '');
-
           // Persist assistant response (user message already saved above)
           if (fullResponse.trim() !== "") {
             try {

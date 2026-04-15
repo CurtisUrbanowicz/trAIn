@@ -4,11 +4,6 @@ import { useEffect, useRef, useCallback } from "react";
 import { useChat, type Message } from "@/lib/useChat";
 import { ArrowUp } from "lucide-react";
 
-/** Strip planning_check tags from completed messages */
-function stripPlanningCheck(content: string): string {
-  return content.replace(/<planning_check>[\s\S]*?<\/planning_check>\s*/g, '').trimStart();
-}
-
 interface ChatViewProps {
   tab: string;
   children?: React.ReactNode;
@@ -113,7 +108,7 @@ export default function ChatView({ tab, children, enabled = true, autoOpen = tru
                 }}
               >
                 <p className="whitespace-pre-wrap break-words">
-                  {isLastStreaming ? msg.content : stripPlanningCheck(msg.content)}
+                  {msg.content}
                 </p>
               </div>
             </div>
