@@ -33,6 +33,13 @@ function addUtcCalendarDays(ymd: string, deltaDays: number): string {
 
 export type TabType = "coach" | "today" | "week" | "season";
 
+const SUMMARY_LIMIT: Record<TabType, number> = {
+  today: 3,
+  week: 3,
+  season: 0,
+  coach: 0,
+};
+
 export type ContextResult = {
   systemPrompt: string;
   contextBlock: string;
@@ -203,8 +210,9 @@ export async function getTodaysMessages(
 export async function getRecentSummaries(
   athleteId: string,
   localDate: string,
-  limit = 7
+  limit: number
 ): Promise<{ date: string; summary: string }[]> {
+  if (limit <= 0) return [];
   const { data, error } = await supabase
     .from("daily_summaries")
     .select("date, summary")
@@ -420,12 +428,12 @@ export function formatContext(
   }
 
   if (data.summaries.length === 0) {
-    sections.push("RECENT SUMMARIES (LAST 7 DAYS):\nNo recent summaries");
+    sections.push("RECENT DAILY SUMMARIES:\nNone pre-loaded. Use get_history with table 'daily_summaries' to retrieve when needed.");
   } else {
     const body = data.summaries
       .map((s) => `${formatDate(s.date)}: ${s.summary ?? ""}`)
       .join("\n\n");
-    sections.push(`RECENT SUMMARIES (LAST 7 DAYS):\n${body}`);
+    sections.push(`RECENT DAILY SUMMARIES (last ${data.summaries.length}):\n${body}`);
   }
 
   const crossTabMessages = data.messages.filter((m) => m.tab !== tab);
@@ -519,7 +527,7 @@ export async function buildContext(
     getCurrentWeeklyPlan(athleteId, weekStart),
     getTodaysReadiness(athleteId, localDate),
     getTodaysMessages(athleteId, localDate),
-    getRecentSummaries(athleteId, localDate),
+    getRecentSummaries(athleteId, localDate, SUMMARY_LIMIT[tab]),
     getContextIndexCounts(athleteId),
   ]);
 
