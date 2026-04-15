@@ -106,11 +106,11 @@ export async function POST(request: Request) {
     const anthropic = new Anthropic();
     const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate };
 
-    // Model selection: try Sonnet, retry once on overloaded, then fall back
-    // to Haiku. The fallback decision is made on the first call only — every
+    // Model selection: try Opus, retry once on overloaded, then fall back
+    // to Sonnet. The fallback decision is made on the first call only — every
     // subsequent call in this request reuses the model the first call settled
     // on, so we never switch mid-tool-loop.
-    type ModelName = "claude-opus-4-6" | "claude-haiku-4-5-20251001";
+    type ModelName = "claude-opus-4-6" | "claude-sonnet-4-6";
     let currentModel: ModelName = "claude-opus-4-6";
     let firstCallComplete = false;
 
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
             throw err2;
           }
 
-          currentModel = "claude-haiku-4-5-20251001";
+          currentModel = "claude-sonnet-4-6";
           const result = await fn(currentModel);
           pushLog("model_used", { model: currentModel, attempt: 3 });
           firstCallComplete = true;
