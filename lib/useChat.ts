@@ -73,7 +73,7 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
           // Final mode — clear thinking, stream final text into message
           setThinking(null);
           updateLastAssistant(
-            fullText.slice(finalIdx + FINAL_DELIMITER.length)
+            fullText.slice(finalIdx + FINAL_DELIMITER.length).trimStart()
           );
         } else if (thinkIdx !== -1) {
           // Thinking mode — combine text before and after THINKING delimiter
@@ -97,8 +97,10 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
         setThinking(null);
         const ti = fullText.indexOf(THINKING_DELIMITER);
         updateLastAssistant(
-          fullText.slice(0, ti) +
+          (
+            fullText.slice(0, ti) +
             fullText.slice(ti + THINKING_DELIMITER.length)
+          ).trimStart()
         );
       }
     },
