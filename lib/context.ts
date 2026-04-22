@@ -122,12 +122,14 @@ export async function getActiveMesocycle(
 ): Promise<{
   start_date: string;
   end_date: string;
+  name: string | null;
   goal: string;
+  structure: string | null;
   notes: string;
 } | null> {
   const { data, error } = await supabase
     .from("mesocycles")
-    .select("start_date, end_date, goal, notes")
+    .select("start_date, end_date, name, goal, structure, notes")
     .eq("athlete_id", athleteId)
     .lte("start_date", localDate)
     .gte("end_date", localDate)
@@ -139,7 +141,9 @@ export async function getActiveMesocycle(
   return {
     start_date: data.start_date,
     end_date: data.end_date,
+    name: data.name,
     goal: data.goal,
+    structure: data.structure,
     notes: data.notes,
   };
 }
@@ -380,14 +384,15 @@ export function formatContext(
   if (data.mesocycle) {
     const m = data.mesocycle;
     const lines = [
+      `Name: ${m.name ?? ""}`,
       `Goal: ${m.goal ?? ""}`,
-      `Start: ${formatDate(m.start_date)}`,
-      `End: ${formatDate(m.end_date)}`,
+      `Structure: ${m.structure ?? ""}`,
     ];
     const notesStr = m.notes != null ? String(m.notes).trim() : "";
     if (notesStr !== "") {
       lines.push(`Notes: ${notesStr}`);
     }
+    lines.push(`Dates: ${formatDate(m.start_date)} – ${formatDate(m.end_date)}`);
     sections.push(`<mesocycle>\n${lines.join("\n")}\n</mesocycle>`);
   } else {
     sections.push("<mesocycle>\nNo active mesocycle\n</mesocycle>");

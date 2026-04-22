@@ -357,7 +357,9 @@ async function createMesocycle(
     athlete_id: context.athleteId,
     start_date: input.start_date as string,
     end_date: input.end_date as string,
+    name: input.name as string,
     goal: input.goal as string,
+    structure: input.structure as string,
     timestamp: new Date().toISOString(),
   };
   if (input.notes != null) row.notes = input.notes;
@@ -365,9 +367,7 @@ async function createMesocycle(
   const { error } = await supabase.from("mesocycles").insert(row);
   if (error) return `Error creating mesocycle: ${error.message}`;
 
-  const goal = input.goal as string;
-  const goalSummary = goal.length > 80 ? goal.slice(0, 80) + "…" : goal;
-  return `Mesocycle created: ${input.start_date} to ${input.end_date} — ${goalSummary}`;
+  return `Mesocycle created: ${input.name} (${input.start_date} to ${input.end_date})`;
 }
 
 async function deleteLogEntry(

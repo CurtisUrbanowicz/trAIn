@@ -54,6 +54,16 @@ function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
+const MESO_MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+function formatMesoDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return `${MESO_MONTHS_SHORT[m! - 1]} ${d}`;
+}
+
 /** 0=Mon … 6=Sun for the 1st of the month. */
 function startDayOffset(year: number, month: number): number {
   const d = new Date(year, month, 1).getDay(); // 0=Sun
@@ -66,6 +76,7 @@ type Meso = {
   start_date: string;
   end_date: string;
   goal: string;
+  name: string | null;
 };
 
 type SetRow = { date: string; exercise: string; weight_kg: number };
@@ -98,7 +109,7 @@ export default function SeasonPage() {
       const [mesoRes, setsRes, runsRes] = await Promise.all([
         supabase
           .from("mesocycles")
-          .select("start_date, end_date, goal")
+          .select("start_date, end_date, goal, name")
           .eq("athlete_id", ATHLETE_ID)
           .lte("start_date", today)
           .gte("end_date", today)
@@ -265,7 +276,7 @@ export default function SeasonPage() {
                         marginRight: 12,
                       }}
                     >
-                      {meso.goal}
+                      {meso.name ? meso.name : `${formatMesoDate(meso.start_date)} – ${formatMesoDate(meso.end_date)}`}
                     </p>
                     <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                       Week {mesoProgress.weekNum} of {mesoProgress.totalWeeks}

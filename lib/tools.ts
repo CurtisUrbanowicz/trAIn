@@ -325,7 +325,7 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "create_mesocycle",
     description:
-      "Create a new mesocycle. Only call after the athlete has confirmed the block goal and date range. Goal and notes combined should be under 200 words — capture targets, phase structure, and key constraints concisely. Limited narrative. If key details like frequency, session types, or priorities weren't discussed, don't call this tool yet. All dates use YYYY-MM-DD format.",
+      "Create a new mesocycle. Only call when you have name, goal, structure, and any relevant guardrails. Propose the name yourself as a synthesis of the conversation — evocative, not generic. Never put session-level prescriptions (specific paces, distances, rep schemes, weekly km targets) in any field — those emerge in weekly planning, not here. All dates use YYYY-MM-DD format.",
     input_schema: {
       type: "object",
       properties: {
@@ -337,17 +337,28 @@ export const tools: Anthropic.Tool[] = [
           type: "string",
           description: "Block end date",
         },
+        name: {
+          type: "string",
+          description:
+            "Short evocative label for this block. Required. Strict max 4 words, max 30 characters. Should feel specific to this block's intent. Propose it yourself after hearing the athlete's goals.",
+        },
         goal: {
           type: "string",
           description:
-            "Block goal in natural language — frequency, session types, approach, priorities",
+            "What this block is trying to achieve. Required. Aspiration, key race targets with dates, non-negotiable intent. The what and why. Under 60 words.",
+        },
+        structure: {
+          type: "string",
+          description:
+            "The shape of the block. Required. Training frequency, split, block duration, arc of intensity (build/deload pattern). The how it's organised. Do not include specific paces, distances, or session prescriptions — those belong in weekly planning. Under 60 words.",
         },
         notes: {
           type: "string",
-          description: "Additional notes",
+          description:
+            "Guardrails only. Optional. Injuries, life/travel constraints, coaching emphasis, things to protect. Not session plans, not week-by-week prescriptions. Under 60 words.",
         },
       },
-      required: ["start_date", "end_date", "goal"],
+      required: ["start_date", "end_date", "name", "goal", "structure"],
     },
   },
   {
