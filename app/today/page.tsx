@@ -4,14 +4,22 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import ChatView from "@/app/components/ChatView";
 import LoadingScreen from "@/app/components/LoadingScreen";
-import { formatSessionType } from "@/lib/format";
+import PlanCard from "@/app/components/PlanCard";
+import ReadinessHero from "@/app/components/ReadinessHero";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 
 interface Plan {
   session_type: string;
-  exercises: (string | { name: string })[] | null;
+  exercises: unknown;
   notes: string | null;
+}
+
+interface Readiness {
+  recovery_score: number | null;
+  hrv: number | null;
+  rhr: number | null;
+  sleep_hours: number | null;
 }
 
 function getLocalDate(): string {
@@ -21,6 +29,7 @@ function getLocalDate(): string {
 
 export default function TodayPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [ready, setReady] = useState(false);
   const [summariesReady, setSummariesReady] = useState(false);
 
@@ -37,19 +46,43 @@ export default function TodayPage() {
       .then(({ data }) => {
         if (data && data.length > 0) {
           const raw = data[0];
-          const exercises =
-            typeof raw.exercises === "string"
-              ? JSON.parse(raw.exercises)
-              : Array.isArray(raw.exercises)
-                ? raw.exercises
-                : [];
-          setPlan({ session_type: raw.session_type, exercises, notes: raw.notes });
+          setPlan({
+            session_type: raw.session_type,
+            exercises: raw.exercises,
+            notes: raw.notes,
+          });
+        }
+      });
+  };
+
+  // Fetch today's readiness
+  const fetchReadiness = () => {
+    const localDate = getLocalDate();
+    supabase
+      .from("readiness")
+      .select("recovery_score, hrv, rhr, sleep_hours")
+      .eq("athlete_id", ATHLETE_ID)
+      .eq("date", localDate)
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const r = data[0];
+          setReadiness({
+            recovery_score: r.recovery_score,
+            hrv: r.hrv,
+            rhr: r.rhr,
+            sleep_hours: r.sleep_hours,
+          });
+        } else {
+          setReadiness(null);
         }
       });
   };
 
   useEffect(() => {
     fetchPlan();
+    fetchReadiness();
   }, []);
 
   useEffect(() => {
@@ -58,6 +91,17 @@ export default function TodayPage() {
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'plans', filter: `athlete_id=eq.${ATHLETE_ID}` },
         () => fetchPlan()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('today-readiness')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'readiness', filter: `athlete_id=eq.${ATHLETE_ID}` },
+        () => fetchReadiness()
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -96,57 +140,8 @@ export default function TodayPage() {
     <div className="flex flex-1 flex-col overflow-hidden">
       <LoadingScreen ready={ready} />
       <ChatView tab="today" enabled={summariesReady}>
-        {plan && (
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              borderRadius: 12,
-              border: "1px solid var(--border-default)",
-              padding: "12px 16px",
-              marginBottom: 16,
-            }}
-          >
-            <p
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--text-primary)",
-                margin: 0,
-              }}
-            >
-              {formatSessionType(plan.session_type)}
-            </p>
-            {plan.exercises && plan.exercises.length > 0 && (
-              <div style={{ marginTop: 6 }}>
-                {plan.exercises.map((ex, i) => (
-                  <p
-                    key={i}
-                    style={{
-                      fontSize: 14,
-                      color: "var(--text-primary)",
-                      margin: 0,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {typeof ex === "string" ? ex : ex.name}
-                  </p>
-                ))}
-              </div>
-            )}
-            {plan.notes && (
-              <p
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  margin: 0,
-                  lineHeight: 1.5,
-                }}
-              >
-                {plan.notes}
-              </p>
-            )}
-          </div>
-        )}
+        <ReadinessHero readiness={readiness} />
+        <PlanCard plan={plan} />
       </ChatView>
     </div>
   );

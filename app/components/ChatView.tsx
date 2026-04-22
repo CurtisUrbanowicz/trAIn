@@ -11,13 +11,17 @@ interface ChatViewProps {
   autoOpen?: boolean;
 }
 
-export default function ChatView({ tab, children, enabled = true, autoOpen = true }: ChatViewProps) {
+export default function ChatView({
+  tab,
+  children,
+  enabled = true,
+  autoOpen = true,
+}: ChatViewProps) {
   const { messages, input, setInput, sendMessage, loading, thinking } =
     useChat(tab, enabled, autoOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll on new messages, streaming, or thinking
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -25,7 +29,6 @@ export default function ChatView({ tab, children, enabled = true, autoOpen = tru
     });
   }, [messages, thinking]);
 
-  // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -45,21 +48,19 @@ export default function ChatView({ tab, children, enabled = true, autoOpen = tru
     resizeTextarea();
   };
 
-  // Reset textarea height after send
   useEffect(() => {
     if (!input && textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
   }, [input]);
 
-  // Determine if the last assistant message is actively streaming
   const lastMsg = messages[messages.length - 1];
   const isStreaming =
     loading && !thinking && lastMsg?.role === "assistant";
+  const hasInput = input.trim().length > 0;
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Sticky children slot */}
       {children && (
         <div
           className="shrink-0 px-4 pt-4"
@@ -69,68 +70,66 @@ export default function ChatView({ tab, children, enabled = true, autoOpen = tru
         </div>
       )}
 
-      {/* Message area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
         {messages.map((msg, i) => {
           const prev: Message | undefined = messages[i - 1];
           const sameSender = prev?.role === msg.role;
           const isUser = msg.role === "user";
-          const isLastStreaming =
-            isStreaming && i === messages.length - 1;
+          const isLastStreaming = isStreaming && i === messages.length - 1;
 
-          // Skip empty assistant placeholders while thinking
-          if (msg.role === "assistant" && !msg.content && thinking) {
-            return null;
-          }
-          // Skip empty messages
+          if (msg.role === "assistant" && !msg.content && thinking) return null;
           if (!msg.content) return null;
 
           return (
             <div
               key={i}
-              style={{ marginTop: i === 0 ? 0 : sameSender ? 4 : 16 }}
+              style={{ marginTop: i === 0 ? 0 : sameSender ? 4 : 10 }}
               className={isUser ? "flex justify-end" : "flex justify-start"}
             >
               <div
                 style={{
-                  maxWidth: "80%",
-                  padding: "12px 16px",
-                  fontSize: "15px",
-                  lineHeight: 1.5,
+                  maxWidth: "85%",
+                  padding: "10px 14px",
+                  fontSize: isUser ? 14 : 15,
+                  lineHeight: 1.42,
+                  letterSpacing: isUser ? "0" : "-0.003em",
+                  fontFamily: isUser
+                    ? "var(--font-inter)"
+                    : "var(--font-serif)",
                   color: "var(--text-primary)",
                   opacity: isLastStreaming ? 0.7 : 1,
                   background: isUser
                     ? "var(--bg-athlete-bubble)"
                     : "var(--bg-coach-bubble)",
+                  border: isUser
+                    ? "0.5px solid var(--border-athlete-bubble)"
+                    : "0.5px solid var(--border-default)",
                   borderRadius: isUser
-                    ? "16px 16px 4px 16px"
-                    : "16px 16px 16px 4px",
+                    ? "18px 18px 4px 18px"
+                    : "18px 18px 18px 4px",
                 }}
               >
-                <p className="whitespace-pre-wrap break-words">
-                  {msg.content}
-                </p>
+                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
               </div>
             </div>
           );
         })}
 
-        {/* Thinking bubble */}
         {thinking && (
-          <div
-            style={{ marginTop: 16 }}
-            className="flex justify-start"
-          >
+          <div style={{ marginTop: 10 }} className="flex justify-start">
             <div
               style={{
-                maxWidth: "80%",
-                padding: "12px 16px",
-                fontSize: "15px",
-                lineHeight: 1.5,
+                maxWidth: "85%",
+                padding: "10px 14px",
+                fontSize: 15,
+                lineHeight: 1.42,
+                letterSpacing: "-0.003em",
+                fontFamily: "var(--font-serif)",
                 color: "var(--text-primary)",
                 opacity: 0.5,
                 background: "var(--bg-coach-bubble)",
-                borderRadius: "16px 16px 16px 4px",
+                border: "0.5px solid var(--border-default)",
+                borderRadius: "18px 18px 18px 4px",
               }}
             >
               <p className="whitespace-pre-wrap break-words italic">
@@ -141,11 +140,10 @@ export default function ChatView({ tab, children, enabled = true, autoOpen = tru
         )}
       </div>
 
-      {/* Input bar */}
       <div
-        className="shrink-0 flex items-end gap-2"
+        className="shrink-0 flex items-center gap-2"
         style={{
-          padding: "8px 12px",
+          padding: "8px 12px calc(8px + env(safe-area-inset-bottom))",
           background: "var(--bg-base)",
           borderTop: "0.5px solid var(--border-default)",
         }}
@@ -160,32 +158,34 @@ export default function ChatView({ tab, children, enabled = true, autoOpen = tru
           rows={1}
           className="flex-1 resize-none outline-none"
           style={{
-            fontSize: "15px",
+            fontSize: 14,
             lineHeight: 1.5,
             color: "var(--text-primary)",
             background: "var(--bg-surface)",
-            borderRadius: "8px",
-            padding: "10px 12px",
-            maxHeight: "120px",
+            border: "0.5px solid var(--border-default)",
+            borderRadius: 999,
+            padding: "10px 16px",
+            maxHeight: 120,
+            fontFamily: "var(--font-inter)",
           }}
         />
-        {input.trim() && (
-          <button
-            type="button"
-            onClick={() => void sendMessage()}
-            disabled={loading}
-            className="shrink-0 flex items-center justify-center"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              background: "var(--bg-surface)",
-              marginBottom: 2,
-            }}
-          >
-            <ArrowUp size={20} style={{ color: "var(--accent)" }} />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => void sendMessage()}
+          disabled={loading || !hasInput}
+          className="shrink-0 flex items-center justify-center"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: hasInput ? "var(--accent)" : "var(--bg-surface)",
+            color: hasInput ? "white" : "var(--text-muted)",
+            transition: "background 150ms, color 150ms, opacity 150ms",
+            opacity: hasInput ? 1 : 0.6,
+          }}
+        >
+          <ArrowUp size={20} />
+        </button>
       </div>
     </div>
   );

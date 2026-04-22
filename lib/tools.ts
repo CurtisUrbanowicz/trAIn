@@ -237,7 +237,11 @@ export const tools: Anthropic.Tool[] = [
       properties: {
         hrv: { type: "number", description: "Heart rate variability" },
         rhr: { type: "number", description: "Resting heart rate" },
-        recovery_score: { type: "number", description: "Recovery score" },
+        recovery_score: {
+          type: "number",
+          description:
+            "Composite readiness score (0-100) provided by the athlete's wearable (Oura, Whoop, Garmin). User-reported, not computed. Do not infer or estimate if absent.",
+        },
         sleep_hours: { type: "number", description: "Hours of sleep" },
         date: {
           type: "string",

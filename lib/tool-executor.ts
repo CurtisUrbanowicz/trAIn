@@ -301,6 +301,11 @@ async function logReadiness(
 ): Promise<string> {
   const date = (input.date as string) ?? context.localDate;
 
+  const recoveryScore = input.recovery_score as number | null | undefined;
+  if (recoveryScore != null && (recoveryScore < 0 || recoveryScore > 100)) {
+    return "recovery_score must be between 0 and 100";
+  }
+
   const row: Record<string, unknown> = {
     athlete_id: context.athleteId,
     date,

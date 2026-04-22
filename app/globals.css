@@ -6,11 +6,13 @@
   /* Backgrounds */
   --bg-base: #050506;
   --bg-surface: rgba(255, 255, 255, 0.05);
+  --bg-surface-2: rgba(255, 255, 255, 0.03);
   --bg-surface-hover: rgba(255, 255, 255, 0.08);
 
   /* Chat bubbles */
   --bg-coach-bubble: rgba(255, 255, 255, 0.08);
-  --bg-athlete-bubble: rgba(94, 106, 210, 0.12);
+  --bg-athlete-bubble: rgba(94, 106, 210, 0.32);
+  --border-athlete-bubble: rgba(94, 106, 210, 0.4);
 
   /* Text */
   --text-primary: #ededef;
@@ -23,6 +25,7 @@
 
   /* Borders */
   --border-default: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.14);
   --border-hover: rgba(255, 255, 255, 0.14);
 }
 

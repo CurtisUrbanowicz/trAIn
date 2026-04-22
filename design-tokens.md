@@ -16,8 +16,8 @@ Mobile-first. The athlete opens this at 6am half awake, between sets with chalk 
 - Surface hover: `rgba(255,255,255,0.08)`
 
 ### Chat bubbles
-- Coach message: `rgba(255,255,255,0.05)` (same as surface)
-- Athlete message: `rgba(94,106,210,0.12)` (subtle indigo tint)
+- Coach message: `rgba(255,255,255,0.08)` (surface, 0.5px default border)
+- Athlete message: `rgba(94,106,210,0.32)` with `rgba(94,106,210,0.4)` border — intentionally more saturated than the coach bubble so authorship reads at a glance
 
 ### Text
 - Primary: `#EDEDEF`
@@ -46,7 +46,9 @@ Mobile-first. The athlete opens this at 6am half awake, between sets with chalk 
 
 ## Typography
 
-Font: Inter, system-ui, sans-serif
+Fonts: Inter (sans, UI default), Source Serif 4 (serif, coach voice only).
+
+**Serif for coach voice.** Source Serif 4 (weights 400, 500) is used *only* for assistant/coach messages, plan-card titles, and stat values (HRV / RHR / Sleep numerals, recovery-score numeral in the orb). Everything else — UI chrome, user messages, buttons, labels — stays Inter. The serif is a voice marker, not a display font.
 
 ### Scale
 - Chat messages: 15px, weight 400, line-height 1.5
