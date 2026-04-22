@@ -110,8 +110,8 @@ export async function POST(request: Request) {
     // to Sonnet. The fallback decision is made on the first call only — every
     // subsequent call in this request reuses the model the first call settled
     // on, so we never switch mid-tool-loop.
-    type ModelName = "claude-opus-4-6" | "claude-sonnet-4-6";
-    let currentModel: ModelName = "claude-opus-4-6";
+    type ModelName = "claude-opus-4-7" | "claude-sonnet-4-6";
+    let currentModel: ModelName = "claude-opus-4-7";
     let firstCallComplete = false;
 
     const createMessage = async <T>(
@@ -124,8 +124,8 @@ export async function POST(request: Request) {
       }
 
       try {
-        const result = await fn("claude-opus-4-6");
-        pushLog("model_used", { model: "claude-opus-4-6", attempt: 1 });
+        const result = await fn("claude-opus-4-7");
+        pushLog("model_used", { model: "claude-opus-4-7", attempt: 1 });
         firstCallComplete = true;
         return result;
       } catch (err) {
@@ -138,8 +138,8 @@ export async function POST(request: Request) {
         await new Promise((r) => setTimeout(r, 2000));
 
         try {
-          const result = await fn("claude-opus-4-6");
-          pushLog("model_used", { model: "claude-opus-4-6", attempt: 2 });
+          const result = await fn("claude-opus-4-7");
+          pushLog("model_used", { model: "claude-opus-4-7", attempt: 2 });
           firstCallComplete = true;
           return result;
         } catch (err2) {
