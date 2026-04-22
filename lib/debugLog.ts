@@ -49,6 +49,6 @@ export async function getLog(): Promise<DebugEntry[]> {
 }
 
 export async function clearLog(): Promise<void> {
-  const { error } = await supabase.from("debug_log").delete().gte("id", 0);
+  const { error } = await supabase.from("debug_log").delete().not("id", "is", null);
   if (error) console.error("[debugLog] clearLog failed:", error.message);
 }

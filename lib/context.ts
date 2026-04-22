@@ -165,6 +165,52 @@ export async function getCurrentWeeklyPlan(
   return { days: data.days };
 }
 
+export async function getTodaysPlan(
+  athleteId: string,
+  localDate: string
+): Promise<{
+  session_type: string;
+  notes: string | null;
+  exercises: string[];
+} | null> {
+  const { data, error } = await supabase
+    .from("plans")
+    .select("session_type, notes, exercises")
+    .eq("athlete_id", athleteId)
+    .eq("date", localDate)
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  let raw: unknown = data.exercises;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = [];
+    }
+  }
+  const exercises: string[] = Array.isArray(raw)
+    ? raw
+        .map((e) =>
+          typeof e === "string"
+            ? e
+            : e && typeof e === "object" && "name" in e
+              ? String((e as { name: unknown }).name ?? "")
+              : ""
+        )
+        .filter(Boolean)
+    : [];
+
+  return {
+    session_type: data.session_type,
+    notes: data.notes,
+    exercises,
+  };
+}
+
 export async function getTodaysReadiness(
   athleteId: string,
   localDate: string
@@ -351,6 +397,7 @@ export function formatContext(
     preferences: Awaited<ReturnType<typeof getUserPreferences>>;
     mesocycle: Awaited<ReturnType<typeof getActiveMesocycle>>;
     weeklyPlan: Awaited<ReturnType<typeof getCurrentWeeklyPlan>>;
+    todayPlan: Awaited<ReturnType<typeof getTodaysPlan>>;
     readiness: Awaited<ReturnType<typeof getTodaysReadiness>>;
     messages: Awaited<ReturnType<typeof getTodaysMessages>>;
     summaries: Awaited<ReturnType<typeof getRecentSummaries>>;
@@ -413,6 +460,20 @@ export function formatContext(
     sections.push(`<weekly_plan>\n${dayLines.join("\n")}\n</weekly_plan>`);
   } else {
     sections.push("<weekly_plan>\nNo plan committed this week\n</weekly_plan>");
+  }
+
+  if (data.todayPlan) {
+    const p = data.todayPlan;
+    const lines = [`Session: ${p.session_type}`];
+    if (p.exercises.length > 0) {
+      lines.push(`Exercises:\n${p.exercises.map((e) => `- ${e}`).join("\n")}`);
+    }
+    if (p.notes != null && String(p.notes).trim() !== "") {
+      lines.push(`Notes: ${p.notes}`);
+    }
+    sections.push(`<today_plan>\n${lines.join("\n")}\n</today_plan>`);
+  } else {
+    sections.push("<today_plan>\nNo plan committed for today.\n</today_plan>");
   }
 
   if (data.readiness) {
@@ -523,6 +584,7 @@ export async function buildContext(
     preferencesResult,
     mesocycleResult,
     weeklyPlanResult,
+    todayPlanResult,
     readinessResult,
     messagesResult,
     summariesResult,
@@ -533,6 +595,7 @@ export async function buildContext(
     getUserPreferences(athleteId),
     getActiveMesocycle(athleteId, localDate),
     getCurrentWeeklyPlan(athleteId, weekStart),
+    getTodaysPlan(athleteId, localDate),
     getTodaysReadiness(athleteId, localDate),
     getTodaysMessages(athleteId, localDate),
     getRecentSummaries(athleteId, localDate, SUMMARY_LIMIT[tab]),
@@ -578,6 +641,15 @@ export async function buildContext(
     console.error(
       "[buildContext] getCurrentWeeklyPlan failed:",
       weeklyPlanResult.reason
+    );
+  }
+
+  const todayPlan =
+    todayPlanResult.status === "fulfilled" ? todayPlanResult.value : null;
+  if (todayPlanResult.status === "rejected") {
+    console.error(
+      "[buildContext] getTodaysPlan failed:",
+      todayPlanResult.reason
     );
   }
 
@@ -635,6 +707,7 @@ export async function buildContext(
     preferences,
     mesocycle,
     weeklyPlan,
+    todayPlan,
     readiness,
     messages,
     summaries,

@@ -174,6 +174,21 @@ Debug panel at /debug route
 Decided: April 2026
 Added an in-app debug panel accessible at /debug during development. Displays tool calls (name, params, result), daily summary generation (dates, output), context loaded, and errors. Built as a fully self-contained component (DebugPanel.tsx) with a global in-memory log array — no integration with ChatView, tabs, or the state architecture. Log calls are one-liners in route.ts and tool-executor.ts. To remove: delete the component, delete the import, search for debugLog and remove those lines. No structural dependencies. Chose /debug route over in-app gesture for simplicity during dev.
 
+Per-tab summary pre-load counts
+Decided: April 2026
+The original "Two context loads based on tab" entry described a full-foundation load that pre-loaded the last 7 daily summaries for planning tabs. Actual behaviour is now {today: 3, week: 3, season: 0, coach: 0}. Today and Week get 3 recent summaries pre-loaded because recent history is directly relevant to planning this week. Season and Coach pre-load 0 summaries because they operate over longer horizons where the right access pattern is tool-driven get_history retrieval against whatever window the conversation calls for — pre-loading a fixed recent window would bias them toward short-horizon thinking. A richer reflective-memory layer for Season/Coach (pattern recognition across months) is on the roadmap but not yet built; until then the context index plus get_history is the interface.
+Rejected: loading 7 summaries uniformly across tabs, loading zero summaries for Today/Week.
+
+Week tab auto-opener — Wednesday onward, empty next week
+Decided: April 2026
+The Week tab fires an auto-opener nudging next-week planning only when dow >= 3 (Wednesday onward) AND no weekly plan exists for next week. Mon/Tue is too early to nudge about next week — the athlete is still in the current week and doesn't yet know how it's going. Once next week has a committed plan, the nudge is no longer helpful. Wednesday is the threshold because it gives the athlete enough of the current week to judge shape and fatigue before committing to next week's structure. Outside this window the Week tab opens silently with no opener.
+Rejected: nudging on any day regardless of next-week state, nudging from Monday, always firing an opener on Week tab open.
+
+Summary layer is prior-day memory, not today-state compaction
+Decided: April 2026
+Daily summaries are generated for yesterday and older — explicitly not today. The summariser query in getRecentSummaries uses .lt("date", localDate) and the generation route skips today. Today's state lives in three distinct context tags: <today_plan> (committed session), <readiness> (HRV/RHR/recovery/sleep), and <cross_tab_messages> (conversations from other tabs today) — plus the live message history on the current tab. Compacting today into a summary before the day is over would freeze an incomplete picture. Summaries are memory across days, not within a day.
+Rejected: generating a today summary at load time, treating the last-N-summaries window as a rolling 24-hour compaction.
+
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.
 * How the end-of-session reflection gets triggered
