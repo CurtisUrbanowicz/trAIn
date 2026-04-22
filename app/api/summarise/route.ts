@@ -147,7 +147,7 @@ Useful notes name the specific thing and its context. Unuseful notes state the g
 Write in first person as the coach. Use YYYY-MM-DD dates. No markdown formatting. Every word earns its place. Aim for under 100 words unless there's meaningful signal to capture. Prioritize density of facts and quotes over readability.`;
 
         const response = await anthropic.messages.create({
-          model: "claude-opus-4-6",
+          model: "claude-sonnet-4-6",
           max_tokens: 500,
           system: systemPrompt,
           messages: [
