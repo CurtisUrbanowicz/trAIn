@@ -86,7 +86,7 @@ export async function POST(request: Request) {
         if (existing && existing.length > 0) continue;
 
         // Fetch all data for this date in parallel
-        const [messagesResult, runsResult, setsResult] = await Promise.all([
+        const [messagesResult, runsResult, setsResult, profileResult] = await Promise.all([
           supabase
             .from("messages")
             .select("tab, role, content")
@@ -103,10 +103,22 @@ export async function POST(request: Request) {
             .select("*")
             .eq("athlete_id", athleteId)
             .eq("date", date),
+          supabase
+            .from("athlete_profile")
+            .select("content")
+            .eq("athlete_id", athleteId)
+            .order("timestamp", { ascending: false })
+            .limit(1)
+            .single(),
         ]);
 
         // Format user message content
         const sections: string[] = [];
+
+        const profile = profileResult.data?.content ?? "";
+        if (profile) {
+          sections.push(`ATHLETE PROFILE:\n${profile}`);
+        }
 
         const messages = messagesResult.data ?? [];
         if (messages.length > 0) {
