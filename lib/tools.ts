@@ -215,11 +215,13 @@ export const tools: Anthropic.Tool[] = [
         },
         notes: {
           type: "string",
-          description: "Session details and notes",
+          description:
+            "Brief coaching intent for the session — why this shape, what to prioritise. Keep it short. Do not include athlete state, soreness reports, or how the athlete is feeling — those live in the conversation, not the plan.",
         },
         exercises: {
           type: "array",
-          description: "Planned exercises",
+          description:
+            "The session plan as a list of short factual lines, one item per line, under ~8 words each. Use this for all sessions regardless of type.",
           items: { type: "string" },
         },
       },

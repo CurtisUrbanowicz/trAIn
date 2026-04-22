@@ -116,26 +116,14 @@ export default function TodayPage() {
             >
               {formatSessionType(plan.session_type)}
             </p>
-            {plan.notes && (
-              <p
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  margin: 0,
-                  lineHeight: 1.5,
-                }}
-              >
-                {plan.notes}
-              </p>
-            )}
             {plan.exercises && plan.exercises.length > 0 && (
               <div style={{ marginTop: 6 }}>
                 {plan.exercises.map((ex, i) => (
                   <p
                     key={i}
                     style={{
-                      fontSize: 13,
-                      color: "var(--text-muted)",
+                      fontSize: 14,
+                      color: "var(--text-primary)",
                       margin: 0,
                       lineHeight: 1.5,
                     }}
@@ -144,6 +132,19 @@ export default function TodayPage() {
                   </p>
                 ))}
               </div>
+            )}
+            {plan.notes && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-muted)",
+                  margin: 0,
+                  marginTop: 6,
+                  lineHeight: 1.4,
+                }}
+              >
+                {plan.notes}
+              </p>
             )}
           </div>
         )}
