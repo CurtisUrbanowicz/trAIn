@@ -19,7 +19,18 @@
       "Bash(taskkill //F //PID 42508 //T)",
       "Bash(netsh advfirewall:*)",
       "Bash(rm:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(ls \"/c/Users/curti/OneDrive - MakersSG/Desktop/Training v2/nextjs14-supabase-anthropic/.eslintrc\"*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(sed:*)",
+      "Bash(git commit -m ' *)",
+      "Bash(VERIFY_TOOLS=1 npx tsx lib/tools.ts)",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__execute_sql"
     ]
   }
 }

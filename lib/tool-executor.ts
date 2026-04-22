@@ -276,21 +276,26 @@ async function getWeeklyPlan(
 async function getMesocycles(context: ToolContext): Promise<string> {
   const { data, error } = await supabase
     .from("mesocycles")
-    .select("start_date, end_date, goal, notes")
+    .select("start_date, end_date, name, goal, structure, notes")
     .eq("athlete_id", context.athleteId)
     .order("start_date", { ascending: false });
 
   if (error) return `Error querying mesocycles: ${error.message}`;
   if (!data || data.length === 0) return "No mesocycles found.";
 
-  const lines: string[] = [];
+  const blocks: string[] = [];
   for (const m of data) {
-    let line = `${formatDateLabel(m.start_date)} to ${formatDateLabel(m.end_date)}: ${m.goal}`;
-    if (m.notes) line += ` (${m.notes})`;
-    lines.push(line);
+    const header = m.name
+      ? `${m.name} (${formatDateLabel(m.start_date)} to ${formatDateLabel(m.end_date)})`
+      : `${formatDateLabel(m.start_date)} to ${formatDateLabel(m.end_date)}`;
+    const lines = [header];
+    if (m.goal) lines.push(`Goal: ${m.goal}`);
+    if (m.structure) lines.push(`Structure: ${m.structure}`);
+    if (m.notes) lines.push(`Notes: ${m.notes}`);
+    blocks.push(lines.join("\n"));
   }
 
-  return lines.join("\n\n");
+  return blocks.join("\n\n");
 }
 
 // ── Write executors ─────────────────────────────────────────────

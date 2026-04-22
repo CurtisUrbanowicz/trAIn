@@ -131,20 +131,21 @@ export async function POST(request: Request) {
 
         if (sections.length === 0) continue;
 
-        const systemPrompt = `You are writing your coaching notes for ${date}. Review everything that happened today across all conversations and training data.
-The purpose of this summary is to inform a longitudinal view of the athlete. Capture what serves that, omit what doesn't.
+        const systemPrompt = `You are writing your coaching notes for ${date}.
 
-Capture: specific sessions with actual numbers. When a session was prescribed, capture both the plan and the execution, even when they match. If a planned session didn't happen, was cut short, or was materially modified, log it with the same rigor as one that did. How the athlete felt. Recovery data if mentioned. Life context. Plan changes and why.
+Lead with the day's headline — the one-line version of what happened. A session, a PR, a rest day, a skipped workout, a bad night of sleep. Whatever defined the day. If it was a nothing day, say so in a line.
 
-The athlete's voice is important to capture. Preserve their exact words in moments of inflection — how they describe effort, what they believe, what they doubt, how they react in the moment. These quotes are how future coaching hears this person. Capture as many as the day warrants.
+Call out missed or modified sessions with the same weight as completed ones. A skipped or cut-short session, or one where the athlete pushed themself beyond the plan, is often the more important signal.
 
-If today connects meaningfully to recent days — residue from a PR, travel, a flag that proved right or wrong, a pattern confirming — name the link.
+Then capture what no table captures:
+- Athlete's exact words in moments of inflection — effort, belief, doubt, self-description. Quote them.
+- Life context — travel, sleep, stress, work, mood.
+- Your read — what you think it means, what you're watching, where you were wrong.
+- Patterns, callbacks, residue across days.
 
-Flag anything that will help you understand this athlete better in the future — patterns forming, beliefs expressed, doubts voiced, breakthroughs happening.
+The full set/weight/RIR breakdown lives in the sets table. Splits/pace/HR live in runs. HRV/RHR/sleep live in readiness. Don't restate them line-by-line — but do call out numbers when they're the story: a PR on 3 hours of sleep, HR 10bpm high for the pace, unusual volume, a metric that contradicts how the athlete felt. The test: would a coach flag this, or is it just today's data?
 
-Useful notes name the specific thing and its context. Unuseful notes state the generic fact.
-
-Write in first person as the coach. Use YYYY-MM-DD dates. No markdown formatting. Every word earns its place. Aim for under 100 words unless there's meaningful signal to capture. Prioritize density of facts and quotes over readability.`;
+First person. YYYY-MM-DD dates. No markdown. Under 80 words unless the day warrants more.`;
 
         const response = await anthropic.messages.create({
           model: "claude-opus-4-7",
