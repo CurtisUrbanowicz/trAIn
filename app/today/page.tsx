@@ -140,7 +140,7 @@ export default function TodayPage() {
     <div className="flex flex-1 flex-col overflow-hidden">
       <LoadingScreen ready={ready} />
       <ChatView tab="today" enabled={summariesReady}>
-        <ReadinessHero readiness={readiness} />
+        <ReadinessHero readiness={readiness} date={getLocalDate()} />
         <PlanCard plan={plan} />
       </ChatView>
     </div>

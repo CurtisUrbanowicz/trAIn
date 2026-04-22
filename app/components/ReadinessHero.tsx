@@ -69,10 +69,48 @@ function OrbRing({
   );
 }
 
+const DOW_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_ABBR = [
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+];
+
+function DateLabel({ date }: { date: string }) {
+  const [y, m, d] = date.split("-").map(Number);
+  const dow = new Date(y!, m! - 1, d!).getDay();
+  return (
+    <div
+      style={{
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        lineHeight: 1,
+      }}
+    >
+      <span style={{ color: "var(--text-primary)" }}>{DOW_ABBR[dow]}</span>{" "}
+      <span style={{ color: "var(--text-muted)" }}>
+        {MONTH_ABBR[m! - 1]} {d}
+      </span>
+    </div>
+  );
+}
+
 export default function ReadinessHero({
   readiness,
+  date,
 }: {
   readiness: Readiness | null;
+  date: string;
 }) {
   const score = readiness?.recovery_score ?? null;
   const hrv = readiness?.hrv ?? null;
@@ -83,14 +121,15 @@ export default function ReadinessHero({
     <div
       style={{
         display: "flex",
+        justifyContent: "space-between",
         alignItems: "center",
-        gap: 10,
         padding: "14px 20px 10px",
         borderBottom: "0.5px solid var(--border-default)",
       }}
     >
-      <OrbRing score={score} />
-      <div style={{ flex: 1 }}>
+      <DateLabel date={date} />
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <OrbRing score={score} />
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           <Stat k="HRV" v={hrv} />
           <Stat k="RHR" v={rhr} />
@@ -109,7 +148,6 @@ function Stat({ k, v }: { k: string; v: number | string | null }) {
         alignItems: "baseline",
         justifyContent: "space-between",
         gap: 14,
-        minWidth: 110,
       }}
     >
       <span
