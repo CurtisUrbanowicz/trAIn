@@ -60,7 +60,7 @@ const MESO_MONTHS_SHORT = [
 ];
 
 function formatMesoDate(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
+  const [, m, d] = ymd.split("-").map(Number);
   return `${MESO_MONTHS_SHORT[m! - 1]} ${d}`;
 }
 
