@@ -136,11 +136,10 @@ export default function TodayPage() {
             {plan.notes && (
               <p
                 style={{
-                  fontSize: 12,
+                  fontSize: 13,
                   color: "var(--text-muted)",
                   margin: 0,
-                  marginTop: 6,
-                  lineHeight: 1.4,
+                  lineHeight: 1.5,
                 }}
               >
                 {plan.notes}
