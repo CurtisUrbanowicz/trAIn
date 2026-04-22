@@ -104,17 +104,26 @@ export default function SeasonPage() {
   // Date range for queries: 52 weeks back covers all toggle options + calendar
   const rangeStart = useMemo(() => addDays(today, -52 * 7), [today]);
 
+  const fetchMeso = async () => {
+    const { data } = await supabase
+      .from("mesocycles")
+      .select("start_date, end_date, goal, name")
+      .eq("athlete_id", ATHLETE_ID)
+      .lte("start_date", today)
+      .gte("end_date", today)
+      .order("timestamp", { ascending: false })
+      .limit(1);
+
+    if (data && data.length > 0) {
+      setMeso(data[0] as Meso);
+    } else {
+      setMeso(null);
+    }
+  };
+
   useEffect(() => {
     const fetchAll = async () => {
-      const [mesoRes, setsRes, runsRes] = await Promise.all([
-        supabase
-          .from("mesocycles")
-          .select("start_date, end_date, goal, name")
-          .eq("athlete_id", ATHLETE_ID)
-          .lte("start_date", today)
-          .gte("end_date", today)
-          .order("timestamp", { ascending: false })
-          .limit(1),
+      const [setsRes, runsRes] = await Promise.all([
         supabase
           .from("sets")
           .select("date, exercise, weight_kg")
@@ -130,11 +139,6 @@ export default function SeasonPage() {
           .lte("date", today)
           .order("date", { ascending: true }),
       ]);
-
-      // Meso
-      if (mesoRes.data && mesoRes.data.length > 0) {
-        setMeso(mesoRes.data[0] as Meso);
-      }
 
       // Sets
       const setsData = (setsRes.data ?? []) as SetRow[];
@@ -160,16 +164,28 @@ export default function SeasonPage() {
       setLoaded(true);
     };
 
+    fetchMeso();
     fetchAll();
 
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('season-meso')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'mesocycles', filter: `athlete_id=eq.${ATHLETE_ID}` },
+        () => fetchMeso()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // ── Meso progress ───────────────────────────────────────────
 
   const mesoProgress = useMemo(() => {
     if (!meso) return null;
-    const totalWeeks = weeksBetween(meso.start_date, meso.end_date);
-    const elapsed = weeksBetween(meso.start_date, today);
+    const totalWeeks = weeksBetween(isoMonday(meso.start_date), isoMonday(meso.end_date)) + 1;
+    const elapsed = weeksBetween(isoMonday(meso.start_date), isoMonday(today));
     const weekNum = Math.min(Math.max(elapsed + 1, 1), totalWeeks);
     const pct = totalWeeks > 0 ? Math.min((elapsed / totalWeeks) * 100, 100) : 0;
     return { weekNum, totalWeeks, pct };
@@ -247,7 +263,7 @@ export default function SeasonPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ChatView tab="season">
+      <ChatView tab="season" autoOpen={false}>
         {loaded && (
           <div style={{ display: "flex", flexDirection: "column", gap: sectionGap, marginBottom: 24 }}>
 
