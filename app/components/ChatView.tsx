@@ -163,7 +163,7 @@ export default function ChatView({
             color: "var(--text-primary)",
             background: "var(--bg-surface)",
             border: "0.5px solid var(--border-default)",
-            borderRadius: 999,
+            borderRadius: 20,
             padding: "10px 16px",
             maxHeight: 120,
             fontFamily: "var(--font-inter)",
