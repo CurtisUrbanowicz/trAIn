@@ -90,4 +90,4 @@ Athlete model: update_athlete_profile, update_user_preferences
 Corrections: delete_log_entry, update_log_entry
 Utility: days_between
 
-Some tools are loaded immediately, others are discoverable via search. If you need a tool that isn't currently visible, search for it. All tools are always available regardless of tab.
+Your loaded tool list is a subset — most tools load lazily via tool search. If you want to take an action that matches a tool in the catalog above but you don't see it loaded, call tool search before concluding anything. Never tell the athlete "I don't have that tool" or "I can't do that" without searching first — every tool in the catalog is available regardless of tab.

@@ -414,11 +414,16 @@ export const tools: Anthropic.Tool[] = [
 ];
 
 const HOT_TOOLS: Record<TabType, Set<string>> = {
-  today: new Set(["get_history", "log_sets", "log_run", "commit_today_plan"]),
+  today: new Set(["get_history", "log_sets", "log_run", "commit_today_plan", "log_readiness", "days_between"]),
   week: new Set(["get_history", "commit_weekly_plan", "get_weekly_plan", "days_between"]),
   season: new Set(["get_history", "get_mesocycles", "create_mesocycle", "days_between"]),
   coach: new Set(["get_history"]),
 };
+
+// log_insight is reflection-only (see app/api/reflect/route.ts). Excluded
+// from chat so the chat brain can't discover it via tool_search and call
+// it outside a reflection pass.
+const CHAT_EXCLUDED_TOOLS = new Set(["log_insight"]);
 
 export function getToolsForTab(tab: TabType): Anthropic.ToolUnion[] {
   const hot = HOT_TOOLS[tab];
@@ -426,7 +431,8 @@ export function getToolsForTab(tab: TabType): Anthropic.ToolUnion[] {
     type: "tool_search_tool_regex_20251119",
     name: "tool_search_tool_regex",
   };
-  const regular: Anthropic.Tool[] = tools.map((t) =>
+  const chatTools = tools.filter((t) => !CHAT_EXCLUDED_TOOLS.has(t.name));
+  const regular: Anthropic.Tool[] = chatTools.map((t) =>
     hot.has(t.name) ? t : { ...t, defer_loading: true }
   );
   let lastHotIdx = -1;
