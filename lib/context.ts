@@ -1,8 +1,6 @@
-import { readFile } from "fs/promises";
-import path from "path";
+import "server-only";
 import { supabase } from "./supabase";
-
-/** Server-only: uses Node fs. Do not import from client components. */
+import { loadChatSystemPrompt } from "@/prompts/manifest";
 
 export function formatDate(dateStr: string): string {
   const days = [
@@ -54,37 +52,6 @@ export type ContextIndexCounts = {
   exercises: string[];
   runTypes: string[];
 };
-
-type SystemPromptCacheEntry = {
-  value: string;
-  /** YYYY-MM-DD when this entry was written */
-  cachedDate: string;
-};
-
-const systemPromptCache = new Map<TabType, SystemPromptCacheEntry>();
-
-export async function loadSystemPrompt(
-  tab: TabType,
-  localDate: string
-): Promise<string> {
-  const hit = systemPromptCache.get(tab);
-  if (hit && hit.cachedDate === localDate) {
-    return hit.value;
-  }
-
-  const root = process.cwd();
-  const brainPath = path.join(root, "coaching-brain.md");
-  const tabPath = path.join(root, "tab-instructions", `${tab}.md`);
-
-  const [brain, tabInstructions] = await Promise.all([
-    readFile(brainPath, "utf8"),
-    readFile(tabPath, "utf8"),
-  ]);
-
-  const combined = `${brain}\n${tabInstructions}`;
-  systemPromptCache.set(tab, { value: combined, cachedDate: localDate });
-  return combined;
-}
 
 export async function getAthleteProfile(
   athleteId: string
@@ -632,7 +599,7 @@ export async function buildContext(
     insightsResult,
     contextIndexResult,
   ] = await Promise.allSettled([
-    loadSystemPrompt(tab, localDate),
+    loadChatSystemPrompt(tab),
     getAthleteProfile(athleteId),
     getUserPreferences(athleteId),
     getActiveMesocycle(athleteId, localDate),
@@ -648,7 +615,7 @@ export async function buildContext(
   const systemPrompt =
     promptResult.status === "fulfilled" ? promptResult.value : "";
   if (promptResult.status === "rejected") {
-    console.error("[buildContext] loadSystemPrompt failed:", promptResult.reason);
+    console.error("[buildContext] loadChatSystemPrompt failed:", promptResult.reason);
   }
 
   const profile =

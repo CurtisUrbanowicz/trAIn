@@ -1,6 +1,4 @@
 import "server-only";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { supabase } from "@/lib/supabase";
 import {
   formatDate,
@@ -10,26 +8,14 @@ import {
   getContextIndexCounts,
   type ContextIndexCounts,
 } from "@/lib/context";
+import { loadReflectionSystemPrompt } from "@/prompts/manifest";
 
 export type ReflectionContext = {
   systemPrompt: string;
   contextBlock: string;
 };
 
-type ReflectionType = "pulse" | "deep";
-
-const systemPromptCache = new Map<ReflectionType, string>();
-
-async function loadReflectionPrompt(type: ReflectionType): Promise<string> {
-  const hit = systemPromptCache.get(type);
-  if (hit != null) return hit;
-
-  const root = process.cwd();
-  const promptPath = path.join(root, `${type}-brain.md`);
-  const value = await fs.readFile(promptPath, "utf8");
-  systemPromptCache.set(type, value);
-  return value;
-}
+export type ReflectionType = "pulse" | "deep";
 
 type InsightRow = {
   date: string;
@@ -133,7 +119,7 @@ export async function buildPulseContext(
     insightsResult,
     summariesResult,
   ] = await Promise.allSettled([
-    loadReflectionPrompt("pulse"),
+    loadReflectionSystemPrompt("pulse"),
     getAthleteProfile(athleteId),
     getUserPreferences(athleteId),
     getRecentInsights(athleteId, "pulse", 3),
@@ -143,7 +129,7 @@ export async function buildPulseContext(
   const systemPrompt =
     promptResult.status === "fulfilled" ? promptResult.value : "";
   if (promptResult.status === "rejected") {
-    console.error("[buildPulseContext] loadReflectionPrompt failed:", promptResult.reason);
+    console.error("[buildPulseContext] loadReflectionSystemPrompt failed:", promptResult.reason);
   }
 
   const profile =
@@ -201,7 +187,7 @@ export async function buildDeepContext(
     summariesResult,
     contextIndexResult,
   ] = await Promise.allSettled([
-    loadReflectionPrompt("deep"),
+    loadReflectionSystemPrompt("deep"),
     getAthleteProfile(athleteId),
     getUserPreferences(athleteId),
     getRecentInsights(athleteId, "deep", 5),
@@ -212,7 +198,7 @@ export async function buildDeepContext(
   const systemPrompt =
     promptResult.status === "fulfilled" ? promptResult.value : "";
   if (promptResult.status === "rejected") {
-    console.error("[buildDeepContext] loadReflectionPrompt failed:", promptResult.reason);
+    console.error("[buildDeepContext] loadReflectionSystemPrompt failed:", promptResult.reason);
   }
 
   const profile =
