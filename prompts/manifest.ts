@@ -20,6 +20,9 @@ export const promptPaths = {
     pulse: "prompts/reflection/pulse.md",
     deep: "prompts/reflection/deep.md",
   } satisfies Record<ReflectionType, PromptPath>,
+  summarise: {
+    base: "prompts/summarise/base.md",
+  },
 } as const;
 
 const cache = new Map<PromptPath, string>();
@@ -45,4 +48,8 @@ export async function loadReflectionSystemPrompt(
   type: ReflectionType
 ): Promise<string> {
   return readPrompt(promptPaths.reflection[type]);
+}
+
+export async function loadSummariserSystemPrompt(): Promise<string> {
+  return readPrompt(promptPaths.summarise.base);
 }

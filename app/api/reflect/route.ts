@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { tools } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
+import { appendToolResultsWithCache } from "@/lib/cache-helpers";
 
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
@@ -110,7 +111,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ insight: existing, cached: true });
     }
 
-    const { systemPrompt, contextBlock } =
+    const { systemPrompt, volatileBlock } =
       type === "pulse"
         ? await buildPulseContext(athleteId, localDate)
         : await buildDeepContext(athleteId, localDate);
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
     pushLog("context_loaded", {
       tab: `reflect-${type}`,
       type,
-      contextBlockLength: contextBlock.length,
+      contextBlockLength: volatileBlock.length,
       systemPromptLength: systemPrompt.length,
     });
     pushLog("model_used", { model: MODEL, type });
@@ -134,7 +135,7 @@ export async function POST(request: Request) {
     const anthropic = new Anthropic();
     const toolContext: ToolContext = { athleteId, localDate };
     const apiMessages: Anthropic.MessageParam[] = [
-      { role: "user", content: contextBlock },
+      { role: "user", content: volatileBlock },
     ];
 
     const callWithRetry = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -243,7 +244,7 @@ export async function POST(request: Request) {
               });
             }
 
-            apiMessages.push({ role: "user", content: toolResults });
+            appendToolResultsWithCache(apiMessages, toolResults);
 
             if (insightLogged) break;
           }

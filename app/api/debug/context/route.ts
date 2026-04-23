@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       searchParams.get("localDate")?.trim() || todayUtcYmd();
 
     const weekStart = getWeekStartMondayUtc(localDate);
-    const { systemPrompt, contextBlock } = await buildContext(
+    const { systemPrompt, volatileBlock } = await buildContext(
       ATHLETE_ID,
       tab,
       localDate
@@ -49,9 +49,9 @@ export async function GET(request: Request) {
       localDate,
       weekStart,
       systemPromptLength: systemPrompt.length,
-      contextBlockLength: contextBlock.length,
+      volatileBlockLength: volatileBlock.length,
       systemPrompt,
-      contextBlock,
+      volatileBlock,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

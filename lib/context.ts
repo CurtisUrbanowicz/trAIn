@@ -40,7 +40,12 @@ const SUMMARY_LIMIT: Record<TabType, number> = {
 
 export type ContextResult = {
   systemPrompt: string;
-  contextBlock: string;
+  volatileBlock: string;
+};
+
+export type FormattedContext = {
+  stableBlock: string;
+  volatileBlock: string;
 };
 
 export type ContextIndexCounts = {
@@ -393,28 +398,19 @@ export function formatContext(
     insights: Awaited<ReturnType<typeof getTodaysInsights>>;
     contextIndex: Awaited<ReturnType<typeof getContextIndexCounts>>;
   }
-): string {
-  const sections: string[] = [];
+): FormattedContext {
+  const stable: string[] = [];
+  const volatile: string[] = [];
 
-  sections.push(
+  stable.push(
     `<context_instructions>\nEmpty fields mean no data exists — do not assume or infer values. Daily summaries are your primary memory of recent training. The context index shows what deeper data is available — retrieve via tool call when it would improve your response.\n</context_instructions>`
   );
 
-  sections.push(
-    `<date>${formatDate(localDate)}${localTime ? ` ${localTime}` : ""}</date>`
-  );
-
-  const thisMonday = getWeekStartMondayUtc(localDate);
-  const nextMonday = getWeekStartMondayUtc(addUtcCalendarDays(localDate, 7));
-  sections.push(
-    `<week_dates>\nCurrent week Monday: ${formatDate(thisMonday)}\nNext week Monday: ${formatDate(nextMonday)}\n</week_dates>`
-  );
-
-  sections.push(
+  stable.push(
     `<athlete_profile>\n${data.profile?.content ?? "Not yet set"}\n</athlete_profile>`
   );
 
-  sections.push(
+  stable.push(
     `<user_preferences>\n${data.preferences?.content ?? "Not yet set"}\n</user_preferences>`
   );
 
@@ -430,9 +426,9 @@ export function formatContext(
       lines.push(`Notes: ${notesStr}`);
     }
     lines.push(`Dates: ${formatDate(m.start_date)} – ${formatDate(m.end_date)}`);
-    sections.push(`<mesocycle>\n${lines.join("\n")}\n</mesocycle>`);
+    stable.push(`<mesocycle>\n${lines.join("\n")}\n</mesocycle>`);
   } else {
-    sections.push("<mesocycle>\nNo active mesocycle\n</mesocycle>");
+    stable.push("<mesocycle>\nNo active mesocycle\n</mesocycle>");
   }
 
   if (data.weeklyPlan?.days != null && typeof data.weeklyPlan.days === "object") {
@@ -447,10 +443,20 @@ export function formatContext(
       const notes = entry?.notes ?? "";
       return `${formatDate(dayYmd)}: ${sessionType} — ${notes}`;
     });
-    sections.push(`<weekly_plan>\n${dayLines.join("\n")}\n</weekly_plan>`);
+    stable.push(`<weekly_plan>\n${dayLines.join("\n")}\n</weekly_plan>`);
   } else {
-    sections.push("<weekly_plan>\nNo plan committed this week\n</weekly_plan>");
+    stable.push("<weekly_plan>\nNo plan committed this week\n</weekly_plan>");
   }
+
+  volatile.push(
+    `<date>${formatDate(localDate)}${localTime ? ` ${localTime}` : ""}</date>`
+  );
+
+  const thisMonday = getWeekStartMondayUtc(localDate);
+  const nextMonday = getWeekStartMondayUtc(addUtcCalendarDays(localDate, 7));
+  volatile.push(
+    `<week_dates>\nCurrent week Monday: ${formatDate(thisMonday)}\nNext week Monday: ${formatDate(nextMonday)}\n</week_dates>`
+  );
 
   if (data.todayPlan) {
     const p = data.todayPlan;
@@ -461,14 +467,14 @@ export function formatContext(
     if (p.notes != null && String(p.notes).trim() !== "") {
       lines.push(`Notes: ${p.notes}`);
     }
-    sections.push(`<today_plan>\n${lines.join("\n")}\n</today_plan>`);
+    volatile.push(`<today_plan>\n${lines.join("\n")}\n</today_plan>`);
   } else {
-    sections.push("<today_plan>\nNo plan committed for today.\n</today_plan>");
+    volatile.push("<today_plan>\nNo plan committed for today.\n</today_plan>");
   }
 
   if (data.readiness) {
     const r = data.readiness;
-    sections.push(
+    volatile.push(
       `<readiness>\n${[
         `HRV: ${formatMetric(r.hrv)}`,
         `RHR: ${formatMetric(r.rhr)}`,
@@ -477,27 +483,27 @@ export function formatContext(
       ].join("\n")}\n</readiness>`
     );
   } else {
-    sections.push(
+    volatile.push(
       `<readiness>\nNothing logged for ${formatDate(localDate)}\n</readiness>`
     );
   }
 
   if (data.summaries.length === 0) {
-    sections.push(
+    volatile.push(
       "<daily_summaries>\nNone pre-loaded. Use get_history to retrieve when needed.\n</daily_summaries>"
     );
   } else {
     const body = data.summaries
       .map((s) => `${formatDate(s.date)}: ${s.summary ?? ""}`)
       .join("\n\n");
-    sections.push(
+    volatile.push(
       `<daily_summaries count="${data.summaries.length}">\n${body}\n</daily_summaries>`
     );
   }
 
   if (tab === "coach") {
     if (data.insights.length === 0) {
-      sections.push(
+      volatile.push(
         '<todays_insights count="0">\nNone yet today.\n</todays_insights>'
       );
     } else {
@@ -507,7 +513,7 @@ export function formatContext(
             `[${i.type} — significance ${i.significance}]\n${i.content ?? ""}`
         )
         .join("\n\n");
-      sections.push(
+      volatile.push(
         `<todays_insights count="${data.insights.length}">\n${body}\n</todays_insights>`
       );
     }
@@ -515,7 +521,7 @@ export function formatContext(
 
   const crossTabMessages = data.messages.filter((m) => m.tab !== tab);
   if (crossTabMessages.length === 0) {
-    sections.push(
+    volatile.push(
       "<cross_tab_messages>\nNo messages today from other tabs.\n</cross_tab_messages>"
     );
   } else {
@@ -525,7 +531,7 @@ export function formatContext(
         return `[${m.tab}] ${role}: ${m.content ?? ""}`;
       })
       .join("\n");
-    sections.push(`<cross_tab_messages>\n${body}\n</cross_tab_messages>`);
+    volatile.push(`<cross_tab_messages>\n${body}\n</cross_tab_messages>`);
   }
 
   const ci = data.contextIndex;
@@ -557,9 +563,12 @@ export function formatContext(
     `Run type vocabulary: ${ci.runTypes.length > 0 ? ci.runTypes.join(", ") : "none yet"}`,
   ].join("\n");
 
-  sections.push(`<context_index>\n${indexBody}\n</context_index>`);
+  volatile.push(`<context_index>\n${indexBody}\n</context_index>`);
 
-  return sections.join("\n\n");
+  return {
+    stableBlock: stable.join("\n\n"),
+    volatileBlock: volatile.join("\n\n"),
+  };
 }
 
 /** Monday of the week containing `localDate` (YYYY-MM-DD), computed in UTC. */
@@ -721,18 +730,26 @@ export async function buildContext(
     );
   }
 
-  const contextBlock = formatContext(tab, localDate, weekStart, localTime, {
-    profile,
-    preferences,
-    mesocycle,
-    weeklyPlan,
-    todayPlan,
-    readiness,
-    messages,
-    summaries,
-    insights,
-    contextIndex,
-  });
+  const { stableBlock, volatileBlock } = formatContext(
+    tab,
+    localDate,
+    weekStart,
+    localTime,
+    {
+      profile,
+      preferences,
+      mesocycle,
+      weeklyPlan,
+      todayPlan,
+      readiness,
+      messages,
+      summaries,
+      insights,
+      contextIndex,
+    }
+  );
 
-  return { systemPrompt, contextBlock };
+  const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stableBlock}\n</persistent_context>`;
+
+  return { systemPrompt: fullSystemPrompt, volatileBlock };
 }

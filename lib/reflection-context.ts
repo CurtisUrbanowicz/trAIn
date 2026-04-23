@@ -12,7 +12,7 @@ import { loadReflectionSystemPrompt } from "@/prompts/manifest";
 
 export type ReflectionContext = {
   systemPrompt: string;
-  contextBlock: string;
+  volatileBlock: string;
 };
 
 export type ReflectionType = "pulse" | "deep";
@@ -156,23 +156,20 @@ export async function buildPulseContext(
     console.error("[buildPulseContext] getRecentSummaries failed:", summariesResult.reason);
   }
 
-  const sections: string[] = [];
-  sections.push(`<context_instructions>\n${PULSE_INSTRUCTIONS}\n</context_instructions>`);
-  sections.push(`<date>\n${formatDate(localDate)}\n</date>`);
-  sections.push(
-    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`
-  );
-  sections.push(
-    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`
-  );
-  sections.push(
-    `<prior_pulse_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_pulse_insights>`
-  );
-  sections.push(
-    `<recent_summaries count="${summaries.length}">\n${formatSummariesBlock(summaries)}\n</recent_summaries>`
-  );
+  const stable: string[] = [
+    `<context_instructions>\n${PULSE_INSTRUCTIONS}\n</context_instructions>`,
+    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`,
+    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`,
+  ];
+  const volatile: string[] = [
+    `<date>\n${formatDate(localDate)}\n</date>`,
+    `<prior_pulse_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_pulse_insights>`,
+    `<recent_summaries count="${summaries.length}">\n${formatSummariesBlock(summaries)}\n</recent_summaries>`,
+  ];
 
-  return { systemPrompt, contextBlock: sections.join("\n\n") };
+  const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stable.join("\n\n")}\n</persistent_context>`;
+
+  return { systemPrompt: fullSystemPrompt, volatileBlock: volatile.join("\n\n") };
 }
 
 export async function buildDeepContext(
@@ -243,24 +240,19 @@ export async function buildDeepContext(
     console.error("[buildDeepContext] getContextIndexCounts failed:", contextIndexResult.reason);
   }
 
-  const sections: string[] = [];
-  sections.push(`<context_instructions>\n${DEEP_INSTRUCTIONS}\n</context_instructions>`);
-  sections.push(`<date>\n${formatDate(localDate)}\n</date>`);
-  sections.push(
-    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`
-  );
-  sections.push(
-    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`
-  );
-  sections.push(
-    `<prior_deep_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_deep_insights>`
-  );
-  sections.push(
-    `<recent_summaries count="${summaries.length}">\n${formatSummariesBlock(summaries)}\n</recent_summaries>`
-  );
-  sections.push(
-    `<context_index>\n${formatContextIndex(contextIndex)}\n</context_index>`
-  );
+  const stable: string[] = [
+    `<context_instructions>\n${DEEP_INSTRUCTIONS}\n</context_instructions>`,
+    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`,
+    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`,
+  ];
+  const volatile: string[] = [
+    `<date>\n${formatDate(localDate)}\n</date>`,
+    `<prior_deep_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_deep_insights>`,
+    `<recent_summaries count="${summaries.length}">\n${formatSummariesBlock(summaries)}\n</recent_summaries>`,
+    `<context_index>\n${formatContextIndex(contextIndex)}\n</context_index>`,
+  ];
 
-  return { systemPrompt, contextBlock: sections.join("\n\n") };
+  const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stable.join("\n\n")}\n</persistent_context>`;
+
+  return { systemPrompt: fullSystemPrompt, volatileBlock: volatile.join("\n\n") };
 }

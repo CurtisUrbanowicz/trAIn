@@ -5,6 +5,10 @@ import { supabase } from "@/lib/supabase";
 import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
+import {
+  appendToolResultsWithCache,
+  historyWithLastAssistantCached,
+} from "@/lib/cache-helpers";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 const MAX_TOOL_ITERATIONS = 5;
@@ -69,21 +73,21 @@ export async function POST(request: Request) {
       )
       .map((h) => ({ role: h.role, content: h.content }));
 
-    const { systemPrompt, contextBlock } = await buildContext(
+    const { systemPrompt, volatileBlock } = await buildContext(
       ATHLETE_ID,
       tab,
       localDate,
       localTime
     );
 
-    pushLog("context_loaded", { tab, contextBlockLength: contextBlock.length });
+    pushLog("context_loaded", { tab, contextBlockLength: volatileBlock.length });
 
-    const messagesForApi =
+    const messagesForApi: Anthropic.MessageParam[] =
       message.trim() === ""
-        ? [{ role: "user" as const, content: contextBlock }]
+        ? [{ role: "user" as const, content: volatileBlock }]
         : [
-            { role: "user" as const, content: contextBlock },
-            ...history,
+            { role: "user" as const, content: volatileBlock },
+            ...historyWithLastAssistantCached(history),
             { role: "user" as const, content: message },
           ];
 
@@ -250,10 +254,7 @@ export async function POST(request: Request) {
                 });
               }
             }
-            apiMessages.push({
-              role: "user" as const,
-              content: initialToolResults,
-            });
+            appendToolResultsWithCache(apiMessages, initialToolResults);
 
             // Subsequent iterations use create() — no streaming
             for (let i = 1; i < MAX_TOOL_ITERATIONS; i++) {
@@ -319,10 +320,7 @@ export async function POST(request: Request) {
                   });
                 }
               }
-              apiMessages.push({
-                role: "user" as const,
-                content: loopToolResults,
-              });
+              appendToolResultsWithCache(apiMessages, loopToolResults);
             }
 
             // Safety net: if loop exhausted without a final text
