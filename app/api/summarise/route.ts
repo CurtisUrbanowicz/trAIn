@@ -155,7 +155,7 @@ Then capture what no table captures:
 - Your read on the athlete — what you're learning about them, what's shifting, what you're watching.
 - Patterns, callbacks, residue across days.
 
-The summary is about the athlete. Capture coach judgment where it reveals something true about them, not where it's self-instruction.
+The summary is about the athlete, not about how you coach them.
 
 The full set/weight/RIR breakdown lives in the sets table. Splits/pace/HR live in runs. HRV/RHR/sleep live in readiness. Don't restate them line-by-line — but do call out numbers when they're the story: a PR on 3 hours of sleep, HR 10bpm high for the pace, unusual volume, a metric that contradicts how the athlete felt. The test: would a coach flag this, or is it just today's data?
 
