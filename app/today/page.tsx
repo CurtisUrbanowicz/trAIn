@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { getLocalDate } from "@/lib/dates";
+import { useRealtimeInsert } from "@/lib/useRealtimeInsert";
 import ChatView from "@/app/components/ChatView";
 import LoadingScreen from "@/app/components/LoadingScreen";
 import PlanCard from "@/app/components/PlanCard";
@@ -20,11 +22,6 @@ interface Readiness {
   hrv: number | null;
   rhr: number | null;
   sleep_hours: number | null;
-}
-
-function getLocalDate(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default function TodayPage() {
@@ -85,27 +82,8 @@ export default function TodayPage() {
     fetchReadiness();
   }, []);
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('today-plan')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'plans', filter: `athlete_id=eq.${ATHLETE_ID}` },
-        () => fetchPlan()
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('today-readiness')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'readiness', filter: `athlete_id=eq.${ATHLETE_ID}` },
-        () => fetchReadiness()
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+  useRealtimeInsert("today-plan", "plans", fetchPlan, `athlete_id=eq.${ATHLETE_ID}`);
+  useRealtimeInsert("today-readiness", "readiness", fetchReadiness, `athlete_id=eq.${ATHLETE_ID}`);
 
   // Generate summaries for unsummarised dates, then enable the opener
   useEffect(() => {

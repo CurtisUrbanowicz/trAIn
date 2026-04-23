@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { getLocalDate } from "@/lib/dates";
 import ChatView from "@/app/components/ChatView";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
@@ -29,11 +30,6 @@ const initialCard: ReflectionCard = {
   insight: null,
   error: null,
 };
-
-function getLocalDate(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 export default function CoachPage() {
   const [pulseCard, setPulseCard] = useState<ReflectionCard>(initialCard);

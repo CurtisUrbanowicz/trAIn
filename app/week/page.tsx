@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { addDays, formatDayDate, getLocalDate, isoMonday } from "@/lib/dates";
+import { useRealtimeInsert } from "@/lib/useRealtimeInsert";
 import { formatSessionType } from "@/lib/format";
 import ChatView from "@/app/components/ChatView";
 import { ChevronDown, ChevronUp, Check } from "lucide-react";
@@ -18,38 +20,8 @@ const DAY_KEYS = [
   "sunday",
 ] as const;
 
-const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 type DayEntry = { session_type?: string; notes?: string };
 type WeekDays = Record<string, DayEntry>;
-
-function getMonday(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=Sun
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function addDays(ymd: string, days: number): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const date = new Date(y!, m! - 1, d!);
-  date.setDate(date.getDate() + days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function getTodayYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function formatDayDate(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const date = new Date(y!, m! - 1, d!);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const dayIdx = (date.getDay() + 6) % 7; // Mon=0
-  return `${SHORT_DAYS[dayIdx]} ${months[date.getMonth()]} ${date.getDate()}`;
-}
 
 function isTrainingDay(entry?: DayEntry): boolean {
   return !!entry?.session_type && entry.session_type !== "rest" && entry.session_type !== "Rest";
@@ -67,8 +39,8 @@ export default function WeekPage() {
   const [completedDates, setCompletedDates] = useState<Set<string>>(new Set());
   const [shouldNudge, setShouldNudge] = useState(false);
 
-  const today = getTodayYmd();
-  const thisMonday = getMonday(new Date());
+  const today = getLocalDate();
+  const thisMonday = isoMonday(today);
   const nextMonday = addDays(thisMonday, 7);
   const nextSunday = addDays(nextMonday, 6);
   const mondays = [thisMonday, nextMonday];
@@ -135,16 +107,7 @@ export default function WeekPage() {
     fetchWeekData();
   }, []);
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('week-plan')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'weekly_plans', filter: `athlete_id=eq.${ATHLETE_ID}` },
-        () => fetchWeekData()
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+  useRealtimeInsert("week-plan", "weekly_plans", fetchWeekData, `athlete_id=eq.${ATHLETE_ID}`);
 
   const thisWeekDays = weekData[0] ?? null;
   const nextWeekDays = weekData[1] ?? null;

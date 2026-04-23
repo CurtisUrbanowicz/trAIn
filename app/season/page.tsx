@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  addDays,
+  formatShortDate,
+  getLocalDate,
+  isoMonday,
+  weeksBetween,
+} from "@/lib/dates";
+import { useRealtimeInsert } from "@/lib/useRealtimeInsert";
 import ChatView from "@/app/components/ChatView";
+import ToggleButtonGroup from "@/app/components/ToggleButtonGroup";
 import {
   LineChart,
   Line,
@@ -18,50 +27,8 @@ const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function todayYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function ymd(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function addDays(dateStr: string, n: number): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y!, m! - 1, d!);
-  dt.setDate(dt.getDate() + n);
-  return ymd(dt);
-}
-
-/** Monday of the ISO week containing `dateStr`. */
-function isoMonday(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y!, m! - 1, d!);
-  const day = dt.getDay(); // 0=Sun
-  const diff = day === 0 ? -6 : 1 - day;
-  dt.setDate(dt.getDate() + diff);
-  return ymd(dt);
-}
-
-function weeksBetween(a: string, b: string): number {
-  const da = new Date(a);
-  const db = new Date(b);
-  return Math.floor((db.getTime() - da.getTime()) / (7 * 86400000));
-}
-
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
-}
-
-const MESO_MONTHS_SHORT = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-
-function formatMesoDate(ymd: string): string {
-  const [, m, d] = ymd.split("-").map(Number);
-  return `${MESO_MONTHS_SHORT[m! - 1]} ${d}`;
 }
 
 /** 0=Mon … 6=Sun for the 1st of the month. */
@@ -99,7 +66,7 @@ export default function SeasonPage() {
   const [runRange, setRunRange] = useState<TimeRange>("4w");
   const [loaded, setLoaded] = useState(false);
 
-  const today = todayYmd();
+  const today = getLocalDate();
 
   // Date range for queries: 52 weeks back covers all toggle options + calendar
   const rangeStart = useMemo(() => addDays(today, -52 * 7), [today]);
@@ -169,16 +136,7 @@ export default function SeasonPage() {
 
   }, []);
 
-  useEffect(() => {
-    const channel = supabase
-      .channel('season-meso')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'mesocycles', filter: `athlete_id=eq.${ATHLETE_ID}` },
-        () => fetchMeso()
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+  useRealtimeInsert("season-meso", "mesocycles", fetchMeso, `athlete_id=eq.${ATHLETE_ID}`);
 
   // ── Meso progress ───────────────────────────────────────────
 
@@ -292,7 +250,7 @@ export default function SeasonPage() {
                         marginRight: 12,
                       }}
                     >
-                      {meso.name ? meso.name : `${formatMesoDate(meso.start_date)} – ${formatMesoDate(meso.end_date)}`}
+                      {meso.name ? meso.name : `${formatShortDate(meso.start_date)} – ${formatShortDate(meso.end_date)}`}
                     </p>
                     <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                       Week {mesoProgress.weekNum} of {mesoProgress.totalWeeks}
@@ -460,46 +418,21 @@ export default function SeasonPage() {
                 )}
 
                 {/* Exercise toggles */}
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                  {exercises.map((ex) => (
-                    <button
-                      key={ex}
-                      type="button"
-                      onClick={() => setSelectedExercise(ex)}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: ex === selectedExercise ? "var(--text-primary)" : "var(--text-muted)",
-                        padding: "2px 0",
-                      }}
-                    >
-                      {ex}
-                    </button>
-                  ))}
-                </div>
+                <ToggleButtonGroup
+                  items={exercises}
+                  value={selectedExercise}
+                  onChange={setSelectedExercise}
+                  wrap
+                  marginTop={10}
+                />
 
                 {/* Time range toggle */}
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  {TIME_RANGES.map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setLiftRange(r)}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: r === liftRange ? "var(--text-primary)" : "var(--text-muted)",
-                        padding: "2px 0",
-                      }}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
+                <ToggleButtonGroup
+                  items={TIME_RANGES}
+                  value={liftRange}
+                  onChange={setLiftRange}
+                  marginTop={6}
+                />
               </div>
             )}
 
@@ -556,25 +489,12 @@ export default function SeasonPage() {
                 )}
 
                 {/* Time range toggle */}
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  {TIME_RANGES.map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setRunRange(r)}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        color: r === runRange ? "var(--text-primary)" : "var(--text-muted)",
-                        padding: "2px 0",
-                      }}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
+                <ToggleButtonGroup
+                  items={TIME_RANGES}
+                  value={runRange}
+                  onChange={setRunRange}
+                  marginTop={10}
+                />
               </div>
             )}
           </div>
