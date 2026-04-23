@@ -366,6 +366,33 @@ export const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: "log_insight",
+    description:
+      "Log a reflection insight — one per reflection pass. Call exactly once at the end of the pass with the insight that cleared the bar. The tool call is the output of the pass.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["pulse", "deep"],
+          description: "Type of reflection pass.",
+        },
+        content: {
+          type: "string",
+          description:
+            "The insight in plain first-person coach prose. No markdown. Pulse: under 60 words. Deep: under 100 words.",
+        },
+        significance: {
+          type: "integer",
+          minimum: 1,
+          maximum: 10,
+          description: "Significance score 1-10 per the scale in the pulse/deep brain.",
+        },
+      },
+      required: ["type", "content", "significance"],
+    },
+  },
+  {
     name: "days_between",
     description:
       "Returns the number of days between two dates. Use this to verify any time gap before stating it.",

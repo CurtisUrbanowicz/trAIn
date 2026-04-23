@@ -30,7 +30,8 @@
       "Bash(git commit -m ' *)",
       "Bash(VERIFY_TOOLS=1 npx tsx lib/tools.ts)",
       "mcp__claude_ai_Supabase__list_tables",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(curl.exe *)"
     ]
   }
 }

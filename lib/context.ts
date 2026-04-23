@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 
 /** Server-only: uses Node fs. Do not import from client components. */
 
-function formatDate(dateStr: string): string {
+export function formatDate(dateStr: string): string {
   const days = [
     "Sunday",
     "Monday",

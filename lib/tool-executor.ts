@@ -654,6 +654,33 @@ export async function executeTool(
       result = await commitTodayPlan(input, context); break;
     case "days_between":
       result = await daysBetween(input); break;
+    case "log_insight": {
+      const { type, content, significance } = input as {
+        type: "pulse" | "deep";
+        content: string;
+        significance: number;
+      };
+
+      const { data, error } = await supabase
+        .from("insights")
+        .insert({
+          athlete_id: context.athleteId,
+          date: context.localDate,
+          type,
+          content,
+          significance,
+          status: "unsurfaced",
+        })
+        .select()
+        .single();
+
+      if (error) {
+        result = `Error logging insight: ${error.message}`;
+      } else {
+        result = `Insight logged. id=${data.id}, type=${type}, significance=${significance}.`;
+      }
+      break;
+    }
     default:
       result = `Unknown tool: ${name}`;
   }
