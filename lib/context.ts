@@ -257,6 +257,28 @@ export async function getTodaysMessages(
   }));
 }
 
+export async function getTodaysInsights(
+  athleteId: string,
+  localDate: string
+): Promise<{ id: string; type: string; content: string; significance: number }[]> {
+  const { data, error } = await supabase
+    .from("insights")
+    .select("id, type, content, significance")
+    .eq("athlete_id", athleteId)
+    .eq("date", localDate);
+
+  if (error || !data) return [];
+  const order = (t: string) => (t === "pulse" ? 0 : t === "deep" ? 1 : 2);
+  return data
+    .map((row: { id: string; type: string; content: string; significance: number }) => ({
+      id: row.id,
+      type: row.type,
+      content: row.content,
+      significance: row.significance,
+    }))
+    .sort((a, b) => order(a.type) - order(b.type));
+}
+
 export async function getRecentSummaries(
   athleteId: string,
   localDate: string,
@@ -401,6 +423,7 @@ export function formatContext(
     readiness: Awaited<ReturnType<typeof getTodaysReadiness>>;
     messages: Awaited<ReturnType<typeof getTodaysMessages>>;
     summaries: Awaited<ReturnType<typeof getRecentSummaries>>;
+    insights: Awaited<ReturnType<typeof getTodaysInsights>>;
     contextIndex: Awaited<ReturnType<typeof getContextIndexCounts>>;
   }
 ): string {
@@ -505,6 +528,24 @@ export function formatContext(
     );
   }
 
+  if (tab === "coach") {
+    if (data.insights.length === 0) {
+      sections.push(
+        '<todays_insights count="0">\nNone yet today.\n</todays_insights>'
+      );
+    } else {
+      const body = data.insights
+        .map(
+          (i) =>
+            `[${i.type} — significance ${i.significance}]\n${i.content ?? ""}`
+        )
+        .join("\n\n");
+      sections.push(
+        `<todays_insights count="${data.insights.length}">\n${body}\n</todays_insights>`
+      );
+    }
+  }
+
   const crossTabMessages = data.messages.filter((m) => m.tab !== tab);
   if (crossTabMessages.length === 0) {
     sections.push(
@@ -588,6 +629,7 @@ export async function buildContext(
     readinessResult,
     messagesResult,
     summariesResult,
+    insightsResult,
     contextIndexResult,
   ] = await Promise.allSettled([
     loadSystemPrompt(tab, localDate),
@@ -599,6 +641,7 @@ export async function buildContext(
     getTodaysReadiness(athleteId, localDate),
     getTodaysMessages(athleteId, localDate),
     getRecentSummaries(athleteId, localDate, SUMMARY_LIMIT[tab]),
+    getTodaysInsights(athleteId, localDate),
     getContextIndexCounts(athleteId),
   ]);
 
@@ -680,6 +723,15 @@ export async function buildContext(
     );
   }
 
+  const insights =
+    insightsResult.status === "fulfilled" ? insightsResult.value : [];
+  if (insightsResult.status === "rejected") {
+    console.error(
+      "[buildContext] getTodaysInsights failed:",
+      insightsResult.reason
+    );
+  }
+
   const emptyRange = { count: 0, earliest: null, latest: null };
   const defaultContextIndex: ContextIndexCounts = {
     summaries: emptyRange,
@@ -711,6 +763,7 @@ export async function buildContext(
     readiness,
     messages,
     summaries,
+    insights,
     contextIndex,
   });
 
