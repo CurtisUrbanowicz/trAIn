@@ -173,6 +173,25 @@ export async function POST(request: Request) {
           // fullResponse: only the final coaching text, persisted to DB
           let fullResponse = "";
 
+          // Atomic final emission: the FINAL delimiter and its text are
+          // always enqueued together, or neither. A zero-text response
+          // cannot leak a naked delimiter to the client.
+          const emitFinalTurn = (
+            blocks: Anthropic.Messages.Message["content"]
+          ): boolean => {
+            let text = "";
+            for (const block of blocks) {
+              if (block.type === "text") {
+                text += block.text;
+              }
+            }
+            if (!text) return false;
+            controller.enqueue(new TextEncoder().encode(FINAL_DELIMITER));
+            controller.enqueue(new TextEncoder().encode(text));
+            fullResponse += text;
+            return true;
+          };
+
           // ── Initial call: stream to client ──────────────────────
           // Text deltas pipe directly to the frontend. If the model
           // triggers tool use we detect it here and drop into the
@@ -273,18 +292,10 @@ export async function POST(request: Request) {
               );
 
               if (!hasMoreTools) {
-                // Final response — extract text, send to client, log it
-                controller.enqueue(
-                  new TextEncoder().encode(FINAL_DELIMITER)
-                );
-                for (const block of response.content) {
-                  if (block.type === "text") {
-                    fullResponse += block.text;
-                    controller.enqueue(
-                      new TextEncoder().encode(block.text)
-                    );
-                  }
-                }
+                // Final response — emit atomically. If the model returned
+                // no text, fullResponse stays empty and the safety net
+                // below will make one more call.
+                emitFinalTurn(response.content);
                 break;
               }
 
@@ -323,13 +334,11 @@ export async function POST(request: Request) {
               appendToolResultsWithCache(apiMessages, loopToolResults);
             }
 
-            // Safety net: if loop exhausted without a final text
-            // response, the AI never responded to the last tool
-            // results. One more call to get the answer.
+            // Safety net: fullResponse === "" means emitFinalTurn never
+            // succeeded — either the loop exhausted without reaching
+            // !hasMoreTools, or it reached it but the model returned no
+            // text. One more call to get the answer.
             if (fullResponse === "") {
-              controller.enqueue(
-                new TextEncoder().encode(FINAL_DELIMITER)
-              );
               const finalResponse = await createMessage((model) =>
                 anthropic.messages.create({
                   model,
@@ -339,14 +348,7 @@ export async function POST(request: Request) {
                   tools: toolsForRequest,
                 })
               );
-              for (const block of finalResponse.content) {
-                if (block.type === "text") {
-                  fullResponse += block.text;
-                  controller.enqueue(
-                    new TextEncoder().encode(block.text)
-                  );
-                }
-              }
+              emitFinalTurn(finalResponse.content);
             }
           }
 
