@@ -283,8 +283,7 @@ Coach: Read across the full history before responding � summaries, training da
 4.4 Tools
 Tools are how the AI acts on the world and retrieves deeper context. The AI should use them proactively � not because it was told to in a specific situation, but because it has a disposition toward thoroughness before advising.
 Retrieval tools:
-* get_relevant_sessions(type, limit) � last N sessions of a given type. Flexible � works for runs, lifts, specific exercises, or any session type.
-* get_history(table, filters, date_range) � flexible history retrieval. Full runs, full sets, specific date ranges, anything beyond the foundation layer.
+* get_history(table, filters, date_range) � flexible history retrieval. Full runs, full sets, specific date ranges, anything beyond the foundation layer. Covers the "last N sessions of a given type" case via filters.
 * get_weekly_plan(weeks_back) � current and previous weekly plans.
 * get_mesocycles() � full mesocycle history.
 Write tools:

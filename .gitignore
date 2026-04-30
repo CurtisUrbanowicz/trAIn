@@ -51,6 +51,9 @@ next-env.d.ts
 .eslintcache
 .stylelintcache
 
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+
 # yarn v3
 .pnp.*
 .yarn/*
