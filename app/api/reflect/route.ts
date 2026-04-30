@@ -12,7 +12,7 @@ import { appendToolResultsWithCache } from "@/lib/cache-helpers";
 
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
-const MODEL = "claude-opus-4-7";
+const MODEL = "claude-opus-4-6";
 
 type ReflectionType = "pulse" | "deep";
 
