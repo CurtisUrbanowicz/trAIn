@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { addDays, formatDayDate, getLocalDate, isoMonday } from "@/lib/dates";
+import {
+  addDays,
+  formatDayDate,
+  formatShortDate,
+  getLocalDate,
+  isoMonday,
+} from "@/lib/dates";
 import { useRealtimeInsert } from "@/lib/useRealtimeInsert";
 import { formatSessionType } from "@/lib/format";
 import ChatView from "@/app/components/ChatView";
-import { ChevronDown, ChevronUp, Check } from "lucide-react";
+import { ChevronDown, Check } from "lucide-react";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 
@@ -113,21 +119,179 @@ export default function WeekPage() {
   const nextWeekDays = weekData[1] ?? null;
   const thisCount = countPlanned(thisWeekDays);
   const nextCount = countPlanned(nextWeekDays);
+  const thisDoneCount = thisWeekDays
+    ? DAY_KEYS.filter(
+        (k, i) =>
+          isTrainingDay(thisWeekDays[k]) &&
+          completedDates.has(addDays(thisMonday, i))
+      ).length
+    : 0;
+
+  function DayRow({
+    dateYmd,
+    entry,
+    isFirst,
+    isNext,
+  }: {
+    dateYmd: string;
+    entry: DayEntry | undefined;
+    isFirst: boolean;
+    isNext: boolean;
+  }) {
+    const training = isTrainingDay(entry);
+    const isToday = dateYmd === today;
+    const completed = completedDates.has(dateYmd);
+    const dayNum = Number(dateYmd.split("-")[2]);
+    const weekday = formatDayDate(dateYmd).slice(0, 3).toUpperCase();
+
+    let dayNumColor = "var(--text-primary)";
+    if (isToday) dayNumColor = "var(--accent)";
+    else if (!training || isNext) dayNumColor = "var(--text-muted)";
+
+    let weekdayColor = "var(--text-muted)";
+    if (isToday) weekdayColor = "var(--accent)";
+
+    let typeColor = "var(--text-primary)";
+    if (!training) typeColor = "var(--text-muted)";
+    else if (completed || isNext) typeColor = "var(--text-muted)";
+
+    return (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "44px 1fr auto",
+          gap: 12,
+          alignItems: "center",
+          padding: "0 14px 0 12px",
+          height: 28,
+          borderTop: isFirst ? "none" : "0.5px solid var(--border-default)",
+          borderLeft: isToday
+            ? "2px solid var(--accent)"
+            : "2px solid transparent",
+          background: isToday
+            ? "linear-gradient(to right, rgba(94,106,210,0.14), transparent 60%)"
+            : "transparent",
+          overflow: "hidden",
+          lineHeight: 1,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 4,
+            lineHeight: 1,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "var(--font-serif)",
+              fontSize: 14,
+              fontWeight: 500,
+              letterSpacing: "-0.005em",
+              color: dayNumColor,
+            }}
+          >
+            {dayNum}
+          </span>
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: weekdayColor,
+            }}
+          >
+            {weekday}
+          </span>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: 8,
+            minWidth: 0,
+            overflow: "hidden",
+            lineHeight: 1,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 12.5,
+              fontWeight: training ? 500 : 400,
+              letterSpacing: "-0.003em",
+              color: typeColor,
+              fontStyle: training ? "normal" : "italic",
+              opacity: training ? 1 : 0.7,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              lineHeight: 1,
+            }}
+          >
+            {entry?.session_type
+              ? formatSessionType(entry.session_type)
+              : "Rest"}
+          </span>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            minWidth: 16,
+          }}
+        >
+          {completed && (
+            <span
+              aria-label="Completed"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                background: "rgba(94, 234, 154, 0.18)",
+                color: "#5BD0A0",
+              }}
+            >
+              <Check size={12} strokeWidth={3} />
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   function renderSection(
     label: string,
     days: WeekDays | null,
-    count: number,
+    plannedCount: number,
+    doneCount: number,
     monday: string,
     expanded: boolean,
-    setExpanded: (v: boolean) => void
+    setExpanded: (v: boolean) => void,
+    isNext: boolean
   ) {
+    const subtitle = `${formatShortDate(monday)} — ${formatShortDate(addDays(monday, 6))}`;
+    const countText = isNext
+      ? plannedCount > 0
+        ? `${plannedCount} planned`
+        : "none planned"
+      : `${doneCount}/${plannedCount}`;
+
     return (
-      <div
+      <section
         style={{
-          background: "var(--bg-surface)",
+          background: isNext ? "transparent" : "var(--bg-surface)",
+          border: "0.5px solid var(--border-default)",
+          borderStyle: isNext ? "dashed" : "solid",
           borderRadius: 12,
-          border: "1px solid var(--border-default)",
           overflow: "hidden",
         }}
       >
@@ -135,83 +299,102 @@ export default function WeekPage() {
           type="button"
           onClick={() => setExpanded(!expanded)}
           style={{
+            width: "100%",
             display: "flex",
             alignItems: "center",
-            width: "100%",
-            padding: "12px 16px",
+            justifyContent: "space-between",
+            height: 26,
+            padding: "0 14px",
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            gap: 8,
+            textAlign: "left",
+            color: "inherit",
           }}
         >
           <span
             style={{
-              flex: 1,
-              fontSize: 13,
-              fontWeight: 600,
-              color: days ? "var(--text-primary)" : "var(--text-muted)",
-              textAlign: "left",
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
+              minWidth: 0,
             }}
           >
-            {label} — {count > 0 ? `${count} planned` : "none planned"}
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-muted)",
+                transform: expanded ? "rotate(0deg)" : "rotate(-90deg)",
+                transition: "transform 180ms ease",
+                alignSelf: "center",
+              }}
+            >
+              <ChevronDown size={12} strokeWidth={2.5} />
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-serif)",
+                fontSize: 15,
+                fontWeight: 500,
+                letterSpacing: "-0.005em",
+                color: isNext ? "var(--text-muted)" : "var(--text-primary)",
+                lineHeight: 1,
+              }}
+            >
+              {label}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
+                opacity: 0.65,
+                lineHeight: 1,
+              }}
+            >
+              {subtitle}
+            </span>
           </span>
-          <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center" }}>
-            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              color: "var(--text-muted)",
+              fontVariantNumeric: "tabular-nums",
+              lineHeight: 1,
+            }}
+          >
+            {countText}
           </span>
         </button>
 
         {expanded && days && (
-          <div style={{ padding: "0 8px 8px" }}>
-            {DAY_KEYS.map((key, i) => {
-              const dateYmd = addDays(monday, i);
-              const entry = days[key];
-              const training = isTrainingDay(entry);
-              const isToday = dateYmd === today;
-              const completed = completedDates.has(dateYmd);
-
-              return (
-                <div
-                  key={key}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    height: 40,
-                    padding: "0 12px",
-                    borderRadius: 8,
-                    background: training ? "var(--bg-surface)" : "transparent",
-                    borderLeft: isToday ? "2px solid var(--accent)" : "2px solid transparent",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: training ? "var(--text-primary)" : "var(--text-muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    {formatDayDate(dateYmd)}
-                    {completed && (
-                      <Check size={14} style={{ color: "#22c55e" }} strokeWidth={2.5} />
-                    )}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: training ? "var(--text-primary)" : "var(--text-muted)",
-                    }}
-                  >
-                    {entry?.session_type ? formatSessionType(entry.session_type) : "Rest"}
-                  </span>
-                </div>
-              );
-            })}
+          <div
+            style={{
+              padding: 0,
+              borderTop: "0.5px solid var(--border-default)",
+              borderTopStyle: isNext ? "dashed" : "solid",
+            }}
+          >
+            {DAY_KEYS.map((key, i) => (
+              <DayRow
+                key={key}
+                dateYmd={addDays(monday, i)}
+                entry={days[key]}
+                isFirst={i === 0}
+                isNext={isNext}
+              />
+            ))}
           </div>
         )}
-      </div>
+      </section>
     );
   }
 
@@ -219,8 +402,26 @@ export default function WeekPage() {
     <div className="flex flex-1 flex-col overflow-hidden">
       <ChatView tab="week" autoOpen={shouldNudge}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
-          {renderSection("This week", thisWeekDays, thisCount, thisMonday, thisExpanded, setThisExpanded)}
-          {renderSection("Next week", nextWeekDays, nextCount, nextMonday, nextExpanded, setNextExpanded)}
+          {renderSection(
+            "This week",
+            thisWeekDays,
+            thisCount,
+            thisDoneCount,
+            thisMonday,
+            thisExpanded,
+            setThisExpanded,
+            false
+          )}
+          {renderSection(
+            "Next week",
+            nextWeekDays,
+            nextCount,
+            0,
+            nextMonday,
+            nextExpanded,
+            setNextExpanded,
+            true
+          )}
         </div>
       </ChatView>
     </div>
