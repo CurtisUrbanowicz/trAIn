@@ -381,6 +381,14 @@ function formatMetric(value: number | null): string {
   return String(value);
 }
 
+function roundDownToHalfHour(time: string): string {
+  const match = time.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return time;
+  const hh = match[1]!.padStart(2, "0");
+  const mm = parseInt(match[2]!, 10) < 30 ? "00" : "30";
+  return `${hh}:${mm}`;
+}
+
 export function formatContext(
   tab: TabType,
   localDate: string,
@@ -449,7 +457,7 @@ export function formatContext(
   }
 
   volatile.push(
-    `<date>${formatDate(localDate)}${localTime ? ` ${localTime}` : ""}</date>`
+    `<date>${formatDate(localDate)}${localTime ? ` ${roundDownToHalfHour(localTime)}` : ""}</date>`
   );
 
   const thisMonday = getWeekStartMondayUtc(localDate);

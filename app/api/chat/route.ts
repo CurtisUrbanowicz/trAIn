@@ -86,9 +86,11 @@ export async function POST(request: Request) {
       message.trim() === ""
         ? [{ role: "user" as const, content: volatileBlock }]
         : [
-            { role: "user" as const, content: volatileBlock },
             ...historyWithLastAssistantCached(history),
-            { role: "user" as const, content: message },
+            {
+              role: "user" as const,
+              content: `<message>\n\n${message}\n\n</message>\n\n${volatileBlock}`,
+            },
           ];
 
     // Save user message immediately (don't wait for AI response)
