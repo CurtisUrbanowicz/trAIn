@@ -187,6 +187,7 @@ export async function POST(request: Request) {
                 text += block.text;
               }
             }
+            text = text.trimStart();
             if (!text) return false;
             controller.enqueue(new TextEncoder().encode(FINAL_DELIMITER));
             controller.enqueue(new TextEncoder().encode(text));
@@ -200,12 +201,14 @@ export async function POST(request: Request) {
           // non-streaming create() loop below.
           let hasToolUse = false;
           let streamedText = "";
+          let sawNonWhitespace = false;
 
           const initialFinalMsg = await createMessage(async (model) => {
             // Reset on retry — overloaded errors fire before any tokens
             // stream, so we should be re-entering with a clean slate.
             streamedText = "";
             hasToolUse = false;
+            sawNonWhitespace = false;
 
             const stream = anthropic.messages.stream({
               model,
@@ -221,9 +224,16 @@ export async function POST(request: Request) {
                 event.delta.type === "text_delta"
               ) {
                 streamedText += event.delta.text;
-                controller.enqueue(
-                  new TextEncoder().encode(event.delta.text)
-                );
+                if (!sawNonWhitespace) {
+                  const trimmed = event.delta.text.trimStart();
+                  if (trimmed === "") continue;
+                  controller.enqueue(new TextEncoder().encode(trimmed));
+                  sawNonWhitespace = true;
+                } else {
+                  controller.enqueue(
+                    new TextEncoder().encode(event.delta.text)
+                  );
+                }
               }
               if (
                 event.type === "content_block_start" &&
@@ -355,14 +365,15 @@ export async function POST(request: Request) {
           }
 
           // Persist assistant response (user message already saved above)
-          if (fullResponse.trim() !== "") {
+          const persistedResponse = fullResponse.trimStart();
+          if (persistedResponse.trim() !== "") {
             try {
               await supabase.from("messages").insert({
                 athlete_id: ATHLETE_ID,
                 date: localDate,
                 tab,
                 role: "assistant",
-                content: fullResponse,
+                content: persistedResponse,
                 timestamp: new Date().toISOString(),
               });
             } catch (saveError) {
