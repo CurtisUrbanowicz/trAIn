@@ -413,6 +413,23 @@ export const tools: Anthropic.Tool[] = [
   },
 ];
 
+// Write tools whose successful execution should be recorded in the
+// actions table. Kept separate from the tool objects because the
+// Anthropic Tool type rejects extra fields. log_insight is a reflection
+// output, not a state-mutating action — excluded by design.
+export const MUTATING_TOOLS = new Set<string>([
+  "log_sets",
+  "log_run",
+  "log_readiness",
+  "commit_today_plan",
+  "commit_weekly_plan",
+  "create_mesocycle",
+  "update_athlete_profile",
+  "update_user_preferences",
+  "delete_log_entry",
+  "update_log_entry",
+]);
+
 const HOT_TOOLS: Record<TabType, Set<string>> = {
   today: new Set(["get_history", "log_sets", "log_run", "commit_today_plan", "log_readiness", "days_between"]),
   week: new Set(["get_history", "commit_weekly_plan", "get_weekly_plan", "days_between"]),

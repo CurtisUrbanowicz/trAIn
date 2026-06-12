@@ -229,6 +229,28 @@ export async function getTodaysMessages(
   }));
 }
 
+export async function getTodaysActions(
+  athleteId: string,
+  localDate: string
+): Promise<
+  { timestamp: string; local_time: string | null; tool: string; summary: string }[]
+> {
+  const { data, error } = await supabase
+    .from("actions")
+    .select("timestamp, local_time, tool, summary")
+    .eq("athlete_id", athleteId)
+    .eq("date", localDate)
+    .order("timestamp", { ascending: true });
+
+  if (error || !data) return [];
+  return data.map((row) => ({
+    timestamp: row.timestamp,
+    local_time: row.local_time,
+    tool: row.tool,
+    summary: row.summary,
+  }));
+}
+
 export async function getTodaysInsights(
   athleteId: string,
   localDate: string
@@ -405,6 +427,7 @@ export function formatContext(
     summaries: Awaited<ReturnType<typeof getRecentSummaries>>;
     insights: Awaited<ReturnType<typeof getTodaysInsights>>;
     contextIndex: Awaited<ReturnType<typeof getContextIndexCounts>>;
+    actions: Awaited<ReturnType<typeof getTodaysActions>>;
   }
 ): FormattedContext {
   const stable: string[] = [];
@@ -494,6 +517,15 @@ export function formatContext(
     volatile.push(
       `<readiness>\nNothing logged for ${formatDate(localDate)}\n</readiness>`
     );
+  }
+
+  if (data.actions.length === 0) {
+    volatile.push("<todays_actions>\nNo actions yet today.\n</todays_actions>");
+  } else {
+    const body = data.actions
+      .map((a) => `${a.local_time ?? "??:??"} — ${a.tool}: ${a.summary}`)
+      .join("\n");
+    volatile.push(`<todays_actions>\n${body}\n</todays_actions>`);
   }
 
   if (data.summaries.length === 0) {
@@ -615,6 +647,7 @@ export async function buildContext(
     summariesResult,
     insightsResult,
     contextIndexResult,
+    actionsResult,
   ] = await Promise.allSettled([
     loadChatSystemPrompt(tab),
     getAthleteProfile(athleteId),
@@ -627,6 +660,7 @@ export async function buildContext(
     getRecentSummaries(athleteId, localDate, SUMMARY_LIMIT[tab]),
     getTodaysInsights(athleteId, localDate),
     getContextIndexCounts(athleteId),
+    getTodaysActions(athleteId, localDate),
   ]);
 
   const systemPrompt =
@@ -738,6 +772,15 @@ export async function buildContext(
     );
   }
 
+  const actions =
+    actionsResult.status === "fulfilled" ? actionsResult.value : [];
+  if (actionsResult.status === "rejected") {
+    console.error(
+      "[buildContext] getTodaysActions failed:",
+      actionsResult.reason
+    );
+  }
+
   const { stableBlock, volatileBlock } = formatContext(
     tab,
     localDate,
@@ -754,6 +797,7 @@ export async function buildContext(
       summaries,
       insights,
       contextIndex,
+      actions,
     }
   );
 

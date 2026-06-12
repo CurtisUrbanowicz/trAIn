@@ -110,7 +110,7 @@ export async function POST(request: Request) {
     }
 
     const anthropic = new Anthropic();
-    const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate };
+    const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate, localTime };
 
     // Model selection: try Opus, retry once on overloaded, then fall back
     // to Sonnet. The fallback decision is made on the first call only — every

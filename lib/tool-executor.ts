@@ -1,10 +1,12 @@
 import { supabase } from "./supabase";
 import { getWeekStartMondayUtc } from "./context";
 import { pushLog } from "./debugLog";
+import { MUTATING_TOOLS } from "./tools";
 
 export type ToolContext = {
   athleteId: string;
   localDate: string;
+  localTime?: string;
 };
 
 function addDays(ymd: string, days: number): string {
@@ -690,6 +692,31 @@ export async function executeTool(
     input,
     result: result.length > 200 ? result.slice(0, 200) + "…" : result,
   });
+
+  // Fire-and-forget: record successful write-tool executions to actions.
+  // Must never throw or slow the tool call.
+  if (
+    MUTATING_TOOLS.has(name) &&
+    !result.startsWith("Error") &&
+    result !== `Unknown tool: ${name}`
+  ) {
+    try {
+      void supabase
+        .from("actions")
+        .insert({
+          athlete_id: context.athleteId,
+          date: context.localDate,
+          local_time: context.localTime ?? null,
+          tool: name,
+          summary: result.length > 300 ? result.slice(0, 300) : result,
+        })
+        .then(({ error }) => {
+          if (error) console.error("[actions] insert failed:", error.message);
+        });
+    } catch (err) {
+      console.error("[actions] insert threw:", err);
+    }
+  }
 
   return result;
 }
