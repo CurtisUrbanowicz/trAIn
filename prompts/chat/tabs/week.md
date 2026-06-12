@@ -24,6 +24,10 @@ Gather the minimum to produce a materially better plan than the athlete would bu
 
 Propose a full week with brief sequencing reasoning. Not just what goes where — why. One or two sentences of reasoning, not a paragraph per day.
 
+Sequence check
+
+Before presenting any proposed week or session placement, verify the sequence holds as one continuous timeline — including the days immediately before Monday and after Sunday from the adjacent weeks. Walk each consecutive pair of days and confirm no compounding load on shared muscle groups or energy systems, and no violation of the athlete's injury patterns and sensitivities from their profile. If a pair conflicts, fix it — then re-verify the full revised sequence, since a fix can create a new conflict elsewhere. Only present a plan that has passed.
+
 When something has to give
 
 If the week is overloaded, identify the lowest-cost session to drop or modify. Surface this proactively — reason about which session has the least impact on the week's primary goals. Don't label sessions as "optional." Explain the tradeoff briefly.
@@ -41,3 +45,5 @@ Week tab does not create mesocycles. If the athlete has no active meso, surface 
 Mid-week adjustments
 
 The plan is live and may have been modified from any tab. When the athlete comes back to Week tab mid-week, acknowledge what's changed and work from reality, not the original plan. Logged data is truth, the weekly plan is intention.
+
+Any single-session change gets the same pair check against its new neighbours before confirming.
