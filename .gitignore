@@ -53,6 +53,10 @@ next-env.d.ts
 
 # Claude Code runtime state
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# Local design scratch
+design/
 
 # yarn v3
 .pnp.*
