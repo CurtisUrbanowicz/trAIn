@@ -9,6 +9,7 @@ import {
   hasReadinessForDate,
   insertWhoopReadiness,
   type WhoopSleep,
+  type FirstPageDiag,
 } from "@/lib/whoop";
 import { pushLog } from "@/lib/debugLog";
 
@@ -48,10 +49,21 @@ export async function GET(request: Request) {
     const end = new Date().toISOString();
     const start = new Date(Date.now() - days * 86_400_000).toISOString();
 
+    const recoveryDiag: FirstPageDiag = { status: null, records: null };
     const [recoveries, sleeps] = await Promise.all([
-      getRecoveriesInRange(token, start, end),
+      getRecoveriesInRange(token, start, end, recoveryDiag),
       getSleepsInRange(token, start, end),
     ]);
+
+    // Diagnostic for empty backfills — status and count only, never tokens
+    pushLog("wearable_sync", {
+      provider: "whoop",
+      diagnostic: "recovery first page",
+      http_status: recoveryDiag.status,
+      record_count: recoveryDiag.records,
+      start,
+      end,
+    });
     const sleepById = new Map<string, WhoopSleep>(sleeps.map((s) => [s.id, s]));
     const timezone = await getAthleteTimezone(ATHLETE_ID);
 

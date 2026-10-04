@@ -181,10 +181,17 @@ async function whoopGet<T>(token: string, path: string): Promise<T | null> {
 
 type Paged<T> = { records: T[]; next_token: string | null };
 
+/**
+ * First-page diagnostics for collection calls — HTTP status and record
+ * count only, never response bodies or tokens.
+ */
+export type FirstPageDiag = { status: number | null; records: number | null };
+
 async function whoopGetAll<T>(
   token: string,
   path: string,
-  params: Record<string, string>
+  params: Record<string, string>,
+  diag?: FirstPageDiag
 ): Promise<T[]> {
   const records: T[] = [];
   let nextToken: string | null = null;
@@ -192,10 +199,18 @@ async function whoopGetAll<T>(
   for (let page = 0; page < 40; page++) {
     const qs = new URLSearchParams({ ...params, limit: "25" });
     if (nextToken) qs.set("nextToken", nextToken);
-    const res = await whoopGet<Paged<T>>(token, `${path}?${qs.toString()}`);
-    if (!res) break;
-    records.push(...(res.records ?? []));
-    nextToken = res.next_token;
+    const res = await fetch(`${WHOOP_API_BASE}${path}?${qs.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (diag && page === 0) diag.status = res.status;
+    if (!res.ok) {
+      console.error(`[whoop] GET ${path} failed: ${res.status}`);
+      break;
+    }
+    const body = (await res.json()) as Paged<T>;
+    if (diag && page === 0) diag.records = body.records?.length ?? 0;
+    records.push(...(body.records ?? []));
+    nextToken = body.next_token;
     if (!nextToken) break;
   }
   return records;
@@ -221,12 +236,15 @@ export function getSleepById(
 export function getRecoveriesInRange(
   token: string,
   startIso: string,
-  endIso: string
+  endIso: string,
+  diag?: FirstPageDiag
 ): Promise<WhoopRecovery[]> {
-  return whoopGetAll<WhoopRecovery>(token, "/v2/recovery", {
-    start: startIso,
-    end: endIso,
-  });
+  return whoopGetAll<WhoopRecovery>(
+    token,
+    "/v2/recovery",
+    { start: startIso, end: endIso },
+    diag
+  );
 }
 
 export function getSleepsInRange(
