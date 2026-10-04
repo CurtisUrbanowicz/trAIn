@@ -11,6 +11,9 @@ import {
   historyWithLastAssistantCached,
 } from "@/lib/cache-helpers";
 
+// Vercel Hobby (Fluid compute) cap
+export const maxDuration = 300;
+
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 const MAX_TOOL_ITERATIONS: Record<TabType, number> = {
   today: 5,

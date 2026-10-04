@@ -6,6 +6,9 @@ import { SUMMARISE } from "@/lib/models";
 import { getWeekStartMondayUtc } from "@/lib/context";
 import { loadSummariserSystemPrompt } from "@/prompts/manifest";
 
+// Vercel Hobby (Fluid compute) cap
+export const maxDuration = 300;
+
 const DAY_KEYS = [
   "monday",
   "tuesday",

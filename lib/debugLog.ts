@@ -9,7 +9,8 @@ export type DebugEntryType =
   | "error"
   | "cache_usage"
   | "model_used"
-  | "timing";
+  | "timing"
+  | "guard_fired";
 
 export interface DebugEntry {
   timestamp: string;

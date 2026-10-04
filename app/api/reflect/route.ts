@@ -11,6 +11,9 @@ import { pushLog } from "@/lib/debugLog";
 import { REFLECT } from "@/lib/models";
 import { appendToolResultsWithCache } from "@/lib/cache-helpers";
 
+// Vercel Hobby (Fluid compute) cap
+export const maxDuration = 300;
+
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
 const MODEL = REFLECT;
@@ -19,8 +22,11 @@ type ReflectionType = "pulse" | "deep";
 
 const MAX_ITERATIONS: Record<ReflectionType, number> = {
   pulse: 8,
-  deep: 15,
+  deep: 20,
 };
+
+const GUARD_MESSAGE =
+  "Two rounds left. Call log_insight now with the best insight you've verified so far.";
 
 function truncate(value: string, max: number): string {
   return value.length > max ? value.slice(0, max) + "…" : value;
@@ -173,10 +179,28 @@ export async function POST(request: Request) {
           for (let i = 0; i < maxIters; i++) {
             iterations = i + 1;
 
+            // Loop guard: with exactly two calls remaining and no insight
+            // logged, tell the model to commit now. Appended as a trailing
+            // text block on the tool-results user turn (tool_result blocks
+            // must lead a user message, trailing text is valid).
+            if (i === maxIters - 2 && !insightLogged) {
+              const last = apiMessages[apiMessages.length - 1];
+              if (last?.role === "user" && Array.isArray(last.content)) {
+                (last.content as Anthropic.Messages.ContentBlockParam[]).push({
+                  type: "text",
+                  text: GUARD_MESSAGE,
+                });
+              } else {
+                apiMessages.push({ role: "user", content: GUARD_MESSAGE });
+              }
+              pushLog("guard_fired", { type, iteration: iterations, maxIters });
+            }
+
             const finalMsg = await callWithRetry(async () => {
               const stream = anthropic.messages.stream({
                 model: MODEL,
                 max_tokens: 10000,
+                thinking: { type: "enabled", budget_tokens: 4096 },
                 system: [
                   {
                     type: "text",
@@ -272,6 +296,10 @@ export async function POST(request: Request) {
           if (lastUsage) {
             pushLog("cache_usage", {
               input_tokens: lastUsage.input_tokens,
+              // Thinking tokens are counted inside output_tokens (SDK 0.80.0
+              // has no separate field)
+              output_tokens: lastUsage.output_tokens,
+              thinking_enabled: true,
               cache_write: lastUsage.cache_creation_input_tokens,
               cache_read: lastUsage.cache_read_input_tokens,
             });
