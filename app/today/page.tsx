@@ -88,6 +88,11 @@ export default function TodayPage() {
   // Generate summaries for unsummarised dates, then enable the opener
   useEffect(() => {
     const localDate = getLocalDate();
+
+    // Fire-and-forget Whoop sync — never gates the opener. The readiness
+    // realtime subscription above picks up the insert when it lands.
+    fetch("/api/whoop/sync", { method: "POST" }).catch(() => {});
+
     fetch("/api/summarise", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

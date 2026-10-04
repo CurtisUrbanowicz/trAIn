@@ -15,6 +15,7 @@ const TYPE_COLORS: Record<string, string> = {
   summary_generated: "#22c55e",
   error: "#ef4444",
   timing: "#f59e0b",
+  wearable_sync: "#14b8a6",
 };
 
 export default function DebugPage() {
@@ -60,9 +61,23 @@ export default function DebugPage() {
           marginBottom: 16,
         }}
       >
-        <h1 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
-          Debug Log ({entries.length})
-        </h1>
+        <div>
+          <h1 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
+            Debug Log ({entries.length})
+          </h1>
+          <div style={{ fontSize: 11, color: "#14b8a6", marginTop: 2 }}>
+            Last Whoop sync:{" "}
+            {(() => {
+              // entries render oldest → newest, so the last match is latest
+              const sync = entries
+                .filter((e) => e.type === "wearable_sync")
+                .pop();
+              return sync
+                ? new Date(sync.timestamp).toLocaleString()
+                : "none in log";
+            })()}
+          </div>
+        </div>
         <button
           onClick={clearLog}
           style={{

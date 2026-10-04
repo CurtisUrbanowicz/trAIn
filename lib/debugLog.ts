@@ -10,7 +10,8 @@ export type DebugEntryType =
   | "cache_usage"
   | "model_used"
   | "timing"
-  | "guard_fired";
+  | "guard_fired"
+  | "wearable_sync";
 
 export interface DebugEntry {
   timestamp: string;
