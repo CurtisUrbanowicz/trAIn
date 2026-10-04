@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   getValidToken,
-  getLatestRecovery,
+  getRecentRecoveries,
   getSleepById,
   getAthleteTimezone,
   mapRecoveryToReadiness,
   hasReadinessForDate,
   insertWhoopReadiness,
+  todayInTimezone,
 } from "@/lib/whoop";
 import { pushLog } from "@/lib/debugLog";
 
@@ -20,11 +21,16 @@ export async function POST() {
       return NextResponse.json({ skipped: "no token" });
     }
 
-    const recovery = await getLatestRecovery(token);
-    if (!recovery) {
+    const recoveries = await getRecentRecoveries(token);
+    if (recoveries.length === 0) {
       pushLog("wearable_sync", { provider: "whoop", skipped: "no recovery data" });
       return NextResponse.json({ skipped: "no recovery data" });
     }
+
+    // Newest by record creation time — never trust server ordering
+    const recovery = [...recoveries].sort(
+      (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)
+    )[0]!;
 
     const sleep = recovery.sleep_id
       ? await getSleepById(token, recovery.sleep_id)
@@ -34,6 +40,23 @@ export async function POST() {
     if (!values) {
       pushLog("wearable_sync", { provider: "whoop", skipped: "unscored or calibrating" });
       return NextResponse.json({ skipped: "unscored" });
+    }
+
+    // Staleness guard: sync exists to fill *today's* readiness. If the
+    // newest recovery's wake date is more than 2 days old, the account has
+    // no fresh data — never write ancient rows. The logged wake date shows
+    // what Whoop considers newest for the authorized account.
+    const today = todayInTimezone(timezone);
+    const ageDays =
+      (Date.parse(today) - Date.parse(values.date)) / 86_400_000;
+    if (ageDays > 2) {
+      pushLog("wearable_sync", {
+        provider: "whoop",
+        skipped: "stale recovery",
+        newest_wake_date: values.date,
+        today,
+      });
+      return NextResponse.json({ skipped: "stale", newest_wake_date: values.date });
     }
 
     // Strict no-overwrite: any existing row for the date wins

@@ -67,6 +67,12 @@ export async function GET(request: Request) {
     const sleepById = new Map<string, WhoopSleep>(sleeps.map((s) => [s.id, s]));
     const timezone = await getAthleteTimezone(ATHLETE_ID);
 
+    // Newest first regardless of server ordering — keeps the
+    // first-record-per-date dedupe below correct
+    recoveries.sort(
+      (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)
+    );
+
     let written = 0;
     let skippedExisting = 0;
     let skippedUnscored = 0;

@@ -216,14 +216,19 @@ async function whoopGetAll<T>(
   return records;
 }
 
-export async function getLatestRecovery(
+/**
+ * First unfiltered page of recoveries (docs say newest-first, but callers
+ * must sort by created_at themselves — observed ordering has not matched
+ * the docs for all accounts).
+ */
+export async function getRecentRecoveries(
   token: string
-): Promise<WhoopRecovery | null> {
+): Promise<WhoopRecovery[]> {
   const res = await whoopGet<Paged<WhoopRecovery>>(
     token,
-    "/v2/recovery?limit=1"
+    "/v2/recovery?limit=25"
   );
-  return res?.records?.[0] ?? null;
+  return res?.records ?? [];
 }
 
 export function getSleepById(
@@ -300,6 +305,14 @@ function localDateInZone(iso: string, timeZone: string): string | null {
   } catch {
     return localDateInZone(iso, "Europe/London");
   }
+}
+
+/** Today's calendar date (YYYY-MM-DD) in the given IANA timezone. */
+export function todayInTimezone(timeZone: string): string {
+  return (
+    localDateInZone(new Date().toISOString(), timeZone) ??
+    new Date().toISOString().slice(0, 10)
+  );
 }
 
 export async function getAthleteTimezone(athleteId: string): Promise<string> {
