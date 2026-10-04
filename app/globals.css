@@ -45,3 +45,14 @@ textarea::placeholder {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Native-app feel on touch devices */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Hide the bottom nav while the on-screen keyboard is open
+   (KeyboardViewportSync toggles data-keyboard on <html>) */
+html[data-keyboard] nav[data-bottom-nav] {
+  display: none;
+}

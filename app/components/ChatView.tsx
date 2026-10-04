@@ -29,6 +29,24 @@ export default function ChatView({
     });
   }, [messages, thinking]);
 
+  // Keep the latest messages in view when the iOS keyboard opens/closes —
+  // the visual viewport resize shrinks the list, so re-pin to the bottom
+  // once layout settles.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: "instant",
+        });
+      });
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -70,7 +88,10 @@ export default function ChatView({
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overscroll-contain px-4 py-4"
+      >
         {messages.map((msg, i) => {
           const prev: Message | undefined = messages[i - 1];
           const sameSender = prev?.role === msg.role;
@@ -156,9 +177,13 @@ export default function ChatView({
           disabled={loading}
           placeholder="Message..."
           rows={1}
+          enterKeyHint="send"
+          autoCapitalize="sentences"
+          autoCorrect="on"
           className="flex-1 resize-none outline-none"
           style={{
-            fontSize: 14,
+            // 16px minimum — below that iOS zooms the page on focus
+            fontSize: 16,
             lineHeight: 1.5,
             color: "var(--text-primary)",
             background: "var(--bg-surface)",

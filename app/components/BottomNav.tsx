@@ -16,6 +16,7 @@ export default function BottomNav() {
 
   return (
     <nav
+      data-bottom-nav
       className="shrink-0 border-t"
       style={{
         height: "calc(49px + env(safe-area-inset-bottom, 0px))",
