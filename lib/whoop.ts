@@ -181,17 +181,10 @@ async function whoopGet<T>(token: string, path: string): Promise<T | null> {
 
 type Paged<T> = { records: T[]; next_token: string | null };
 
-/**
- * First-page diagnostics for collection calls — HTTP status and record
- * count only, never response bodies or tokens.
- */
-export type FirstPageDiag = { status: number | null; records: number | null };
-
 async function whoopGetAll<T>(
   token: string,
   path: string,
-  params: Record<string, string>,
-  diag?: FirstPageDiag
+  params: Record<string, string>
 ): Promise<T[]> {
   const records: T[] = [];
   let nextToken: string | null = null;
@@ -202,13 +195,11 @@ async function whoopGetAll<T>(
     const res = await fetch(`${WHOOP_API_BASE}${path}?${qs.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (diag && page === 0) diag.status = res.status;
     if (!res.ok) {
       console.error(`[whoop] GET ${path} failed: ${res.status}`);
       break;
     }
     const body = (await res.json()) as Paged<T>;
-    if (diag && page === 0) diag.records = body.records?.length ?? 0;
     records.push(...(body.records ?? []));
     nextToken = body.next_token;
     if (!nextToken) break;
@@ -241,15 +232,12 @@ export function getSleepById(
 export function getRecoveriesInRange(
   token: string,
   startIso: string,
-  endIso: string,
-  diag?: FirstPageDiag
+  endIso: string
 ): Promise<WhoopRecovery[]> {
-  return whoopGetAll<WhoopRecovery>(
-    token,
-    "/v2/recovery",
-    { start: startIso, end: endIso },
-    diag
-  );
+  return whoopGetAll<WhoopRecovery>(token, "/v2/recovery", {
+    start: startIso,
+    end: endIso,
+  });
 }
 
 export function getSleepsInRange(
@@ -389,10 +377,12 @@ export async function hasReadinessForDate(
   return (data ?? []).length > 0;
 }
 
+export type InsertOutcome = "written" | "duplicate" | "error";
+
 export async function insertWhoopReadiness(
   athleteId: string,
   values: ReadinessValues
-): Promise<boolean> {
+): Promise<InsertOutcome> {
   const { error } = await supabase.from("readiness").insert({
     athlete_id: athleteId,
     date: values.date,
@@ -403,9 +393,10 @@ export async function insertWhoopReadiness(
     source: "whoop",
     timestamp: new Date().toISOString(),
   });
-  if (error) {
-    console.error("[whoop] readiness insert failed:", error.message);
-    return false;
-  }
-  return true;
+  if (!error) return "written";
+  // 23505: a concurrent run already wrote this date (unique index
+  // readiness_whoop_one_per_date) — skipped, not a failure
+  if (error.code === "23505") return "duplicate";
+  console.error("[whoop] readiness insert failed:", error.message);
+  return "error";
 }

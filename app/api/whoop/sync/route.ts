@@ -69,10 +69,19 @@ export async function POST() {
       return NextResponse.json({ skipped: "exists", date: values.date });
     }
 
-    const ok = await insertWhoopReadiness(ATHLETE_ID, values);
-    if (!ok) {
+    const outcome = await insertWhoopReadiness(ATHLETE_ID, values);
+    if (outcome === "error") {
       pushLog("error", { message: "whoop sync: readiness insert failed", date: values.date });
       return NextResponse.json({ error: "insert failed" }, { status: 500 });
+    }
+    if (outcome === "duplicate") {
+      // A concurrent sync won the race — same data, nothing to do
+      pushLog("wearable_sync", {
+        provider: "whoop",
+        date: values.date,
+        skipped: "existing readiness",
+      });
+      return NextResponse.json({ skipped: "exists", date: values.date });
     }
 
     pushLog("wearable_sync", {
