@@ -11,7 +11,8 @@ export type DebugEntryType =
   | "model_used"
   | "timing"
   | "guard_fired"
-  | "wearable_sync";
+  | "wearable_sync"
+  | "morning_chain";
 
 export interface DebugEntry {
   timestamp: string;
@@ -27,6 +28,25 @@ export function pushLog(type: DebugEntryType, data: Record<string, unknown>) {
       .then(({ error }) => {
         if (error) console.error("[debugLog] insert failed:", error.message);
       });
+  } catch {
+    // Silently fail — debug log must never break the app
+  }
+}
+
+/**
+ * Awaited variant for background work (waitUntil): the last entry of a chain
+ * must land before the function is released, so it is awaited rather than
+ * fire-and-forget. Still never throws.
+ */
+export async function pushLogAsync(
+  type: DebugEntryType,
+  data: Record<string, unknown>
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("debug_log")
+      .insert({ type, data, timestamp: new Date().toISOString() });
+    if (error) console.error("[debugLog] insert failed:", error.message);
   } catch {
     // Silently fail — debug log must never break the app
   }

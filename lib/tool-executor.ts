@@ -677,7 +677,14 @@ export async function executeTool(
         .single();
 
       if (error) {
-        result = `Error logging insight: ${error.message}`;
+        // 23505: insights_athlete_date_type_unique — a concurrent pass (the
+        // morning chain vs the on-mount Coach fallback) already logged this
+        // date/type. Not an "Error" so the reflect loop treats the insight as
+        // landed and reads the existing row.
+        result =
+          error.code === "23505"
+            ? `Insight for ${type} on ${context.localDate} was already logged by a concurrent pass. Nothing more to do.`
+            : `Error logging insight: ${error.message}`;
       } else {
         result = `Insight logged. id=${data.id}, type=${type}, significance=${significance}.`;
       }

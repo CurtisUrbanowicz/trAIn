@@ -16,7 +16,26 @@ const TYPE_COLORS: Record<string, string> = {
   error: "#ef4444",
   timing: "#f59e0b",
   wearable_sync: "#14b8a6",
+  morning_chain: "#a855f7",
 };
+
+type MorningChainData = {
+  step?: string;
+  date?: string | null;
+  outcome?: string;
+  steps?: Record<string, string>;
+};
+
+function describeMorningChain(entry: DebugEntry): string {
+  const d = entry.data as MorningChainData;
+  const steps = d.steps
+    ? " · " +
+      Object.entries(d.steps)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ")
+    : "";
+  return `${new Date(entry.timestamp).toLocaleString()} · ${d.date ?? "—"} · ${d.step ?? "?"}: ${d.outcome ?? "?"}${steps}`;
+}
 
 export default function DebugPage() {
   const [entries, setEntries] = useState<DebugEntry[]>([]);
@@ -75,6 +94,15 @@ export default function DebugPage() {
               return sync
                 ? new Date(sync.timestamp).toLocaleString()
                 : "none in log";
+            })()}
+          </div>
+          <div style={{ fontSize: 11, color: "#a855f7", marginTop: 2 }}>
+            Last morning chain:{" "}
+            {(() => {
+              const chain = entries
+                .filter((e) => e.type === "morning_chain")
+                .pop();
+              return chain ? describeMorningChain(chain) : "none in log";
             })()}
           </div>
         </div>

@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import {
   getValidToken,
@@ -8,6 +7,7 @@ import {
   mapRecoveryToReadiness,
   hasReadinessForDate,
   insertWhoopReadiness,
+  safeEqual,
   type WhoopSleep,
 } from "@/lib/whoop";
 import { pushLog } from "@/lib/debugLog";
@@ -17,13 +17,6 @@ const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 // Vercel Hobby (Fluid compute) cap — a long backfill pages many requests
 export const maxDuration = 300;
 
-function secretMatches(provided: string, expected: string): boolean {
-  // Hash both sides so timingSafeEqual gets equal-length buffers
-  const a = createHash("sha256").update(provided).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
 
@@ -31,7 +24,7 @@ export async function GET(request: Request) {
   if (!expected) {
     return NextResponse.json({ error: "not configured" }, { status: 500 });
   }
-  if (!secretMatches(url.searchParams.get("secret") ?? "", expected)) {
+  if (!safeEqual(url.searchParams.get("secret") ?? "", expected)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

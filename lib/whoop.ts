@@ -1,6 +1,18 @@
 import "server-only";
+import { createHash, timingSafeEqual } from "crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+
+/**
+ * Constant-time string comparison for secrets and signatures. Hashes both
+ * sides so timingSafeEqual always gets equal-length buffers.
+ */
+export function safeEqual(a: string, b: string): boolean {
+  return timingSafeEqual(
+    createHash("sha256").update(a).digest(),
+    createHash("sha256").update(b).digest()
+  );
+}
 
 // Whoop API v2 (v1 sunset October 2025)
 const WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token";
@@ -155,6 +167,7 @@ export type WhoopRecovery = {
 
 export type WhoopSleep = {
   id: string;
+  cycle_id: number;
   end: string;
   timezone_offset: string;
   nap: boolean;
@@ -227,6 +240,18 @@ export function getSleepById(
   sleepId: string
 ): Promise<WhoopSleep | null> {
   return whoopGet<WhoopSleep>(token, `/v2/activity/sleep/${sleepId}`);
+}
+
+/**
+ * The recovery scored for a physiological cycle. Whoop has no lookup by
+ * sleep id, so a webhook's sleep UUID resolves via sleep.cycle_id → here.
+ * Null (404) when the cycle has no recovery yet.
+ */
+export function getRecoveryForCycle(
+  token: string,
+  cycleId: number
+): Promise<WhoopRecovery | null> {
+  return whoopGet<WhoopRecovery>(token, `/v2/cycle/${cycleId}/recovery`);
 }
 
 export function getRecoveriesInRange(

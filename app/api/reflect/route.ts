@@ -1,69 +1,16 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import {
-  buildPulseContext,
-  buildDeepContext,
-} from "@/lib/reflection-context";
-import { supabase } from "@/lib/supabase";
-import { tools } from "@/lib/tools";
-import { executeTool, type ToolContext } from "@/lib/tool-executor";
+  getExistingInsight,
+  runReflection,
+  type ReflectionType,
+} from "@/lib/reflect";
 import { pushLog } from "@/lib/debugLog";
-import { REFLECT } from "@/lib/models";
-import { appendToolResultsWithCache } from "@/lib/cache-helpers";
 
 // Vercel Hobby (Fluid compute) cap
 export const maxDuration = 300;
 
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
-const MODEL = REFLECT;
-
-type ReflectionType = "pulse" | "deep";
-
-const MAX_ITERATIONS: Record<ReflectionType, number> = {
-  pulse: 8,
-  deep: 20,
-};
-
-const GUARD_MESSAGE =
-  "Two rounds left. Call log_insight now with the best insight you've verified so far.";
-
-function truncate(value: string, max: number): string {
-  return value.length > max ? value.slice(0, max) + "…" : value;
-}
-
-function summariseToolInput(name: string, input: Record<string, unknown>): string {
-  if (name === "get_history") {
-    const parts: string[] = [];
-    if (input.table) parts.push(String(input.table));
-    if (input.date_from || input.date_to) {
-      parts.push(`${input.date_from ?? ""}..${input.date_to ?? ""}`);
-    }
-    if (input.exercise) parts.push(`exercise=${input.exercise}`);
-    if (input.run_type) parts.push(`run_type=${input.run_type}`);
-    if (input.limit != null) parts.push(`limit=${input.limit}`);
-    return parts.join(", ");
-  }
-  if (name === "log_insight") {
-    const sig = input.significance;
-    return `significance=${sig ?? "?"}`;
-  }
-  return "";
-}
-
-async function safeExecuteTool(
-  name: string,
-  input: Record<string, unknown>,
-  context: ToolContext
-): Promise<string> {
-  try {
-    return await executeTool(name, input, context);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[reflect] tool ${name} failed:`, msg);
-    return `Tool execution failed: ${msg}`;
-  }
-}
 
 export async function POST(request: Request) {
   let athleteId: string;
@@ -106,58 +53,10 @@ export async function POST(request: Request) {
 
   try {
     // Idempotency: an insight already exists for this date/type
-    const { data: existing } = await supabase
-      .from("insights")
-      .select("id, type, content, significance, created_at")
-      .eq("athlete_id", athleteId)
-      .eq("date", localDate)
-      .eq("type", type)
-      .maybeSingle();
-
+    const existing = await getExistingInsight(athleteId, localDate, type);
     if (existing) {
       return NextResponse.json({ insight: existing, cached: true });
     }
-
-    const contextStart = Date.now();
-    const { systemPrompt, volatileBlock } =
-      type === "pulse"
-        ? await buildPulseContext(athleteId, localDate)
-        : await buildDeepContext(athleteId, localDate);
-    const contextMs = Date.now() - contextStart;
-
-    pushLog("context_loaded", {
-      tab: `reflect-${type}`,
-      type,
-      contextBlockLength: volatileBlock.length,
-      systemPromptLength: systemPrompt.length,
-      context_ms: contextMs,
-    });
-    pushLog("model_used", { model: MODEL, type });
-
-    const reflectionTools = tools
-      .filter((t) => t.name === "get_history" || t.name === "log_insight")
-      .map((t, i, arr) =>
-        i === arr.length - 1
-          ? { ...t, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
-          : t
-      ) as Anthropic.Tool[];
-
-    const anthropic = new Anthropic();
-    const toolContext: ToolContext = { athleteId, localDate };
-    const apiMessages: Anthropic.MessageParam[] = [
-      { role: "user", content: volatileBlock },
-    ];
-
-    const callWithRetry = async <T>(fn: () => Promise<T>): Promise<T> => {
-      try {
-        return await fn();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!msg.toLowerCase().includes("overloaded")) throw err;
-        await new Promise((r) => setTimeout(r, 2000));
-        return await fn();
-      }
-    };
 
     const encoder = new TextEncoder();
 
@@ -171,163 +70,11 @@ export async function POST(request: Request) {
         try {
           controller.enqueue(encoder.encode(THINKING_DELIMITER));
 
-          let insightLogged = false;
-          let lastUsage: Anthropic.Messages.Usage | null = null;
-          const maxIters = MAX_ITERATIONS[type];
-          let iterations = 0;
+          const result = await runReflection(athleteId, localDate, type, (text) =>
+            controller.enqueue(encoder.encode(text))
+          );
 
-          for (let i = 0; i < maxIters; i++) {
-            iterations = i + 1;
-
-            // Loop guard: with exactly two calls remaining and no insight
-            // logged, tell the model to commit now. Appended as a trailing
-            // text block on the tool-results user turn (tool_result blocks
-            // must lead a user message, trailing text is valid).
-            if (i === maxIters - 2 && !insightLogged) {
-              const last = apiMessages[apiMessages.length - 1];
-              if (last?.role === "user" && Array.isArray(last.content)) {
-                (last.content as Anthropic.Messages.ContentBlockParam[]).push({
-                  type: "text",
-                  text: GUARD_MESSAGE,
-                });
-              } else {
-                apiMessages.push({ role: "user", content: GUARD_MESSAGE });
-              }
-              pushLog("guard_fired", { type, iteration: iterations, maxIters });
-            }
-
-            const finalMsg = await callWithRetry(async () => {
-              const stream = anthropic.messages.stream({
-                model: MODEL,
-                max_tokens: 10000,
-                thinking: { type: "enabled", budget_tokens: 4096 },
-                system: [
-                  {
-                    type: "text",
-                    text: systemPrompt,
-                    cache_control: { type: "ephemeral", ttl: "1h" },
-                  },
-                ],
-                messages: apiMessages,
-                tools: reflectionTools,
-              });
-
-              for await (const event of stream) {
-                if (
-                  event.type === "content_block_delta" &&
-                  event.delta.type === "text_delta"
-                ) {
-                  controller.enqueue(encoder.encode(event.delta.text));
-                }
-              }
-
-              return await stream.finalMessage();
-            });
-
-            lastUsage = finalMsg.usage;
-
-            if (finalMsg.stop_reason !== "tool_use") {
-              break;
-            }
-
-            apiMessages.push({
-              role: "assistant",
-              content:
-                finalMsg.content as Anthropic.Messages.ContentBlockParam[],
-            });
-
-            const toolUses = finalMsg.content.filter(
-              (b): b is Anthropic.Messages.ToolUseBlock =>
-                b.type === "tool_use"
-            );
-
-            // Announce all calls up front, then execute in parallel —
-            // results are processed in block order below.
-            for (const block of toolUses) {
-              const summary = summariseToolInput(
-                block.name,
-                block.input as Record<string, unknown>
-              );
-              controller.enqueue(
-                encoder.encode(`\n→ ${block.name}(${summary})\n`)
-              );
-            }
-
-            const results = await Promise.all(
-              toolUses.map((block) =>
-                safeExecuteTool(
-                  block.name,
-                  block.input as Record<string, unknown>,
-                  toolContext
-                )
-              )
-            );
-
-            const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-            toolUses.forEach((block, idx) => {
-              const input = block.input as Record<string, unknown>;
-              const result = results[idx]!;
-
-              pushLog("tool_call", {
-                name: block.name,
-                input: truncate(JSON.stringify(input), 200),
-                result: truncate(result, 200),
-              });
-
-              if (
-                block.name === "log_insight" &&
-                !result.startsWith("Error")
-              ) {
-                insightLogged = true;
-              }
-
-              toolResults.push({
-                type: "tool_result",
-                tool_use_id: block.id,
-                content: result,
-              });
-            });
-
-            appendToolResultsWithCache(apiMessages, toolResults);
-
-            if (insightLogged) break;
-          }
-
-          if (lastUsage) {
-            pushLog("cache_usage", {
-              input_tokens: lastUsage.input_tokens,
-              // Thinking tokens are counted inside output_tokens (SDK 0.80.0
-              // has no separate field)
-              output_tokens: lastUsage.output_tokens,
-              thinking_enabled: true,
-              cache_write: lastUsage.cache_creation_input_tokens,
-              cache_read: lastUsage.cache_read_input_tokens,
-            });
-          }
-
-          if (insightLogged) {
-            const { data: row } = await supabase
-              .from("insights")
-              .select("id, type, content, significance, created_at, date")
-              .eq("athlete_id", athleteId)
-              .eq("date", localDate)
-              .eq("type", type)
-              .maybeSingle();
-
-            writeFinal({
-              insight: row,
-              iterations,
-              cached: false,
-            });
-          } else {
-            pushLog("error", {
-              message: "Reflection pass ended without logging an insight",
-              type,
-              iterations,
-            });
-            writeFinal({ error: "no_insight_logged", iterations });
-          }
-
+          writeFinal(result);
           controller.close();
         } catch (streamErr) {
           const errMsg =
