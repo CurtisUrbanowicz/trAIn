@@ -5,15 +5,25 @@ import { supabase } from "@/lib/supabase";
 import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
+import { CHAT_PRIMARY, CHAT_FALLBACK } from "@/lib/models";
 import {
   appendToolResultsWithCache,
   historyWithLastAssistantCached,
 } from "@/lib/cache-helpers";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS: Record<TabType, number> = {
+  today: 5,
+  week: 5,
+  season: 10,
+  coach: 10,
+};
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
+
+// Extended thinking — per tab; today stays off for latency.
+const THINKING_TABS = new Set<TabType>(["week", "season", "coach"]);
+const THINKING_BUDGET_TOKENS = 2048;
 
 const TAB_VALUES = new Set<TabType>([
   "coach",
@@ -43,6 +53,7 @@ async function safeExecuteTool(
 }
 
 export async function POST(request: Request) {
+  const t0 = Date.now();
   try {
     const body = (await request.json()) as {
       message?: string;
@@ -73,12 +84,14 @@ export async function POST(request: Request) {
       )
       .map((h) => ({ role: h.role, content: h.content }));
 
+    const contextStart = Date.now();
     const { systemPrompt, volatileBlock } = await buildContext(
       ATHLETE_ID,
       tab,
       localDate,
       localTime
     );
+    const contextMs = Date.now() - contextStart;
 
     pushLog("context_loaded", { tab, contextBlockLength: volatileBlock.length });
 
@@ -116,8 +129,8 @@ export async function POST(request: Request) {
     // to Sonnet. The fallback decision is made on the first call only — every
     // subsequent call in this request reuses the model the first call settled
     // on, so we never switch mid-tool-loop.
-    type ModelName = "claude-opus-4-6" | "claude-sonnet-4-6";
-    let currentModel: ModelName = "claude-opus-4-6";
+    type ModelName = typeof CHAT_PRIMARY | typeof CHAT_FALLBACK;
+    let currentModel: ModelName = CHAT_PRIMARY;
     let firstCallComplete = false;
 
     const createMessage = async <T>(
@@ -130,8 +143,8 @@ export async function POST(request: Request) {
       }
 
       try {
-        const result = await fn("claude-opus-4-6");
-        pushLog("model_used", { model: "claude-opus-4-6", attempt: 1 });
+        const result = await fn(CHAT_PRIMARY);
+        pushLog("model_used", { model: CHAT_PRIMARY, attempt: 1 });
         firstCallComplete = true;
         return result;
       } catch (err) {
@@ -144,8 +157,8 @@ export async function POST(request: Request) {
         await new Promise((r) => setTimeout(r, 2000));
 
         try {
-          const result = await fn("claude-opus-4-6");
-          pushLog("model_used", { model: "claude-opus-4-6", attempt: 2 });
+          const result = await fn(CHAT_PRIMARY);
+          pushLog("model_used", { model: CHAT_PRIMARY, attempt: 2 });
           firstCallComplete = true;
           return result;
         } catch (err2) {
@@ -155,7 +168,7 @@ export async function POST(request: Request) {
             throw err2;
           }
 
-          currentModel = "claude-sonnet-4-6";
+          currentModel = CHAT_FALLBACK;
           const result = await fn(currentModel);
           pushLog("model_used", { model: currentModel, attempt: 3 });
           firstCallComplete = true;
@@ -169,8 +182,25 @@ export async function POST(request: Request) {
 
     const toolsForRequest = getToolsForTab(tab);
 
+    // Decided once per request and applied to every call in the tool loop —
+    // never toggled mid-loop, so thinking blocks in earlier assistant turns
+    // stay valid for subsequent calls.
+    const thinking: Anthropic.ThinkingConfigParam | undefined =
+      THINKING_TABS.has(tab)
+        ? { type: "enabled", budget_tokens: THINKING_BUDGET_TOKENS }
+        : undefined;
+
     const readable = new ReadableStream({
       async start(controller) {
+        // Request timing — one "timing" entry pushed at the end.
+        // first_token_ms = first byte enqueued to the client, whatever it is.
+        let firstTokenMs: number | null = null;
+        const rounds: Array<{ api_ms: number; tools_ms: number; tools: number }> =
+          [];
+        const enqueue = (chunk: Uint8Array) => {
+          if (firstTokenMs === null) firstTokenMs = Date.now() - t0;
+          controller.enqueue(chunk);
+        };
         try {
           // fullResponse: only the final coaching text, persisted to DB
           let fullResponse = "";
@@ -189,8 +219,8 @@ export async function POST(request: Request) {
             }
             text = text.trimStart();
             if (!text) return false;
-            controller.enqueue(new TextEncoder().encode(FINAL_DELIMITER));
-            controller.enqueue(new TextEncoder().encode(text));
+            enqueue(new TextEncoder().encode(FINAL_DELIMITER));
+            enqueue(new TextEncoder().encode(text));
             fullResponse += text;
             return true;
           };
@@ -203,6 +233,7 @@ export async function POST(request: Request) {
           let streamedText = "";
           let sawNonWhitespace = false;
 
+          const initialApiStart = Date.now();
           const initialFinalMsg = await createMessage(async (model) => {
             // Reset on retry — overloaded errors fire before any tokens
             // stream, so we should be re-entering with a clean slate.
@@ -213,6 +244,7 @@ export async function POST(request: Request) {
             const stream = anthropic.messages.stream({
               model,
               max_tokens: 10000,
+              ...(thinking ? { thinking } : {}),
               system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
               messages: apiMessages,
               tools: toolsForRequest,
@@ -227,12 +259,10 @@ export async function POST(request: Request) {
                 if (!sawNonWhitespace) {
                   const trimmed = event.delta.text.trimStart();
                   if (trimmed === "") continue;
-                  controller.enqueue(new TextEncoder().encode(trimmed));
+                  enqueue(new TextEncoder().encode(trimmed));
                   sawNonWhitespace = true;
                 } else {
-                  controller.enqueue(
-                    new TextEncoder().encode(event.delta.text)
-                  );
+                  enqueue(new TextEncoder().encode(event.delta.text));
                 }
               }
               if (
@@ -245,21 +275,25 @@ export async function POST(request: Request) {
 
             return await stream.finalMessage();
           });
+          const initialApiMs = Date.now() - initialApiStart;
 
           pushLog("cache_usage", {
             input_tokens: initialFinalMsg.usage.input_tokens,
+            // SDK 0.80.0 has no separate thinking-token field — thinking
+            // tokens are counted inside output_tokens.
+            output_tokens: initialFinalMsg.usage.output_tokens,
+            thinking_enabled: thinking !== undefined,
             cache_write: initialFinalMsg.usage.cache_creation_input_tokens,
             cache_read: initialFinalMsg.usage.cache_read_input_tokens,
           });
 
           if (!hasToolUse) {
             // No tools — streamed text is the final response
+            rounds.push({ api_ms: initialApiMs, tools_ms: 0, tools: 0 });
             fullResponse = streamedText;
           } else {
             // ── Tool-use loop (non-streaming) ────────────────────
-            controller.enqueue(
-              new TextEncoder().encode(THINKING_DELIMITER)
-            );
+            enqueue(new TextEncoder().encode(THINKING_DELIMITER));
 
             // Append the assistant turn (text + tool_use blocks)
             apiMessages.push({
@@ -268,36 +302,47 @@ export async function POST(request: Request) {
                 initialFinalMsg.content as Anthropic.Messages.ContentBlockParam[],
             });
 
-            // Execute the tool calls from the initial response
+            // Execute the tool calls from the initial response — in
+            // parallel; map preserves result order against block order,
+            // and safeExecuteTool never rejects.
+            const initialToolsStart = Date.now();
+            const initialToolUses = initialFinalMsg.content.filter(
+              (b): b is Anthropic.Messages.ToolUseBlock =>
+                b.type === "tool_use"
+            );
             const initialToolResults: Anthropic.Messages.ToolResultBlockParam[] =
-              [];
-            for (const block of initialFinalMsg.content) {
-              if (block.type === "tool_use") {
-                const result = await safeExecuteTool(
-                  block.name,
-                  block.input as Record<string, unknown>,
-                  toolContext
-                );
-                initialToolResults.push({
-                  type: "tool_result",
+              await Promise.all(
+                initialToolUses.map(async (block) => ({
+                  type: "tool_result" as const,
                   tool_use_id: block.id,
-                  content: result,
-                });
-              }
-            }
+                  content: await safeExecuteTool(
+                    block.name,
+                    block.input as Record<string, unknown>,
+                    toolContext
+                  ),
+                }))
+              );
+            rounds.push({
+              api_ms: initialApiMs,
+              tools_ms: Date.now() - initialToolsStart,
+              tools: initialToolResults.length,
+            });
             appendToolResultsWithCache(apiMessages, initialToolResults);
 
             // Subsequent iterations use create() — no streaming
-            for (let i = 1; i < MAX_TOOL_ITERATIONS; i++) {
+            for (let i = 1; i < MAX_TOOL_ITERATIONS[tab]; i++) {
+              const apiStart = Date.now();
               const response = await createMessage((model) =>
                 anthropic.messages.create({
                   model,
                   max_tokens: 10000,
+                  ...(thinking ? { thinking } : {}),
                   system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
                   messages: apiMessages,
                   tools: toolsForRequest,
                 })
               );
+              const apiMs = Date.now() - apiStart;
 
               const hasMoreTools = response.content.some(
                 (b) => b.type === "tool_use"
@@ -307,6 +352,7 @@ export async function POST(request: Request) {
                 // Final response — emit atomically. If the model returned
                 // no text, fullResponse stays empty and the safety net
                 // below will make one more call.
+                rounds.push({ api_ms: apiMs, tools_ms: 0, tools: 0 });
                 emitFinalTurn(response.content);
                 break;
               }
@@ -315,9 +361,7 @@ export async function POST(request: Request) {
               // stream text to client (visible) but don't persist
               for (const block of response.content) {
                 if (block.type === "text" && block.text) {
-                  controller.enqueue(
-                    new TextEncoder().encode(block.text)
-                  );
+                  enqueue(new TextEncoder().encode(block.text));
                 }
               }
 
@@ -327,22 +371,28 @@ export async function POST(request: Request) {
                   response.content as Anthropic.Messages.ContentBlockParam[],
               });
 
+              const loopToolsStart = Date.now();
+              const loopToolUses = response.content.filter(
+                (b): b is Anthropic.Messages.ToolUseBlock =>
+                  b.type === "tool_use"
+              );
               const loopToolResults: Anthropic.Messages.ToolResultBlockParam[] =
-                [];
-              for (const block of response.content) {
-                if (block.type === "tool_use") {
-                  const result = await safeExecuteTool(
-                    block.name,
-                    block.input as Record<string, unknown>,
-                    toolContext
-                  );
-                  loopToolResults.push({
-                    type: "tool_result",
+                await Promise.all(
+                  loopToolUses.map(async (block) => ({
+                    type: "tool_result" as const,
                     tool_use_id: block.id,
-                    content: result,
-                  });
-                }
-              }
+                    content: await safeExecuteTool(
+                      block.name,
+                      block.input as Record<string, unknown>,
+                      toolContext
+                    ),
+                  }))
+                );
+              rounds.push({
+                api_ms: apiMs,
+                tools_ms: Date.now() - loopToolsStart,
+                tools: loopToolResults.length,
+              });
               appendToolResultsWithCache(apiMessages, loopToolResults);
             }
 
@@ -351,15 +401,22 @@ export async function POST(request: Request) {
             // !hasMoreTools, or it reached it but the model returned no
             // text. One more call to get the answer.
             if (fullResponse === "") {
+              const finalApiStart = Date.now();
               const finalResponse = await createMessage((model) =>
                 anthropic.messages.create({
                   model,
                   max_tokens: 10000,
+                  ...(thinking ? { thinking } : {}),
                   system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
                   messages: apiMessages,
                   tools: toolsForRequest,
                 })
               );
+              rounds.push({
+                api_ms: Date.now() - finalApiStart,
+                tools_ms: 0,
+                tools: 0,
+              });
               emitFinalTurn(finalResponse.content);
             }
           }
@@ -381,10 +438,19 @@ export async function POST(request: Request) {
             }
           }
 
+          pushLog("timing", {
+            tab,
+            context_ms: contextMs,
+            first_token_ms: firstTokenMs,
+            tool_rounds: rounds.filter((r) => r.tools > 0).length,
+            rounds,
+            total_ms: Date.now() - t0,
+          });
+
           controller.close();
         } catch (streamErr) {
           const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
-          pushLog("error", { message: errMsg });
+          pushLog("error", { message: errMsg, total_ms: Date.now() - t0 });
           console.error("[chat] streaming failed:", streamErr);
           controller.error(streamErr);
         }

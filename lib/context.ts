@@ -35,7 +35,7 @@ const SUMMARY_LIMIT: Record<TabType, number> = {
   today: 3,
   week: 3,
   season: 0,
-  coach: 0,
+  coach: 7,
 };
 
 export type ContextResult = {
@@ -212,14 +212,19 @@ export async function getTodaysReadiness(
 
 export async function getTodaysMessages(
   athleteId: string,
-  localDate: string
+  localDate: string,
+  excludeTab?: string
 ): Promise<{ role: string; content: string; tab: string }[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("messages")
     .select("role, content, tab")
     .eq("athlete_id", athleteId)
-    .eq("date", localDate)
-    .order("timestamp", { ascending: true });
+    .eq("date", localDate);
+  if (excludeTab) {
+    // formatContext only renders cross-tab messages — filter server-side
+    query = query.neq("tab", excludeTab);
+  }
+  const { data, error } = await query.order("timestamp", { ascending: true });
 
   if (error || !data) return [];
   return data.map((row) => ({
@@ -291,88 +296,54 @@ export async function getRecentSummaries(
   return data.map((row) => ({ date: row.date, summary: row.summary }));
 }
 
-async function rangeCountAndDates(
-  table: "daily_summaries" | "runs" | "sets",
-  athleteId: string
-): Promise<{ count: number; earliest: string | null; latest: string | null }> {
-  const [countRes, minRes, maxRes] = await Promise.all([
-    supabase
-      .from(table)
-      .select("*", { count: "exact", head: true })
-      .eq("athlete_id", athleteId),
-    supabase
-      .from(table)
-      .select("date")
-      .eq("athlete_id", athleteId)
-      .order("date", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from(table)
-      .select("date")
-      .eq("athlete_id", athleteId)
-      .order("date", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
-
-  return {
-    count: countRes.count ?? 0,
-    earliest: minRes.data?.date ?? null,
-    latest: maxRes.data?.date ?? null,
-  };
-}
-
 export async function getContextIndexCounts(
   athleteId: string
 ): Promise<ContextIndexCounts> {
-  const [summaries, runs, sets, mesoRes, plansRes, exercisesRes, runTypesRes] =
-    await Promise.all([
-      rangeCountAndDates("daily_summaries", athleteId),
-      rangeCountAndDates("runs", athleteId),
-      rangeCountAndDates("sets", athleteId),
-      supabase
-        .from("mesocycles")
-        .select("*", { count: "exact", head: true })
-        .eq("athlete_id", athleteId),
-      supabase
-        .from("weekly_plans")
-        .select("*", { count: "exact", head: true })
-        .eq("athlete_id", athleteId),
-      supabase
-        .from("sets")
-        .select("exercise")
-        .eq("athlete_id", athleteId),
-      supabase
-        .from("runs")
-        .select("run_type")
-        .eq("athlete_id", athleteId),
-    ]);
+  // Single RPC round trip — replaces 13 per-request queries (3× count/min/max,
+  // 2 bare counts, and two vocabulary scans that grew with every session).
+  // See supabase/migrations/20261004000000_create_get_context_index_rpc.sql.
+  const { data, error } = await supabase.rpc("get_context_index", {
+    p_athlete_id: athleteId,
+  });
 
-  const exercises = Array.from(
-    new Set(
-      (exercisesRes.data ?? [])
-        .map((r: { exercise: string }) => r.exercise)
-        .filter(Boolean)
-    )
-  ).sort();
+  if (error || data == null) {
+    throw new Error(
+      `get_context_index RPC failed: ${error?.message ?? "no data returned"}`
+    );
+  }
 
-  const runTypes = Array.from(
-    new Set(
-      (runTypesRes.data ?? [])
-        .map((r: { run_type: string }) => r.run_type)
-        .filter(Boolean)
-    )
-  ).sort();
+  const raw = data as Record<string, unknown>;
+
+  const range = (value: unknown) => {
+    const r = (value ?? {}) as {
+      count?: number;
+      earliest?: string | null;
+      latest?: string | null;
+    };
+    return {
+      count: r.count ?? 0,
+      earliest: r.earliest ?? null,
+      latest: r.latest ?? null,
+    };
+  };
+
+  const countOnly = (value: unknown) => ({
+    count: ((value ?? {}) as { count?: number }).count ?? 0,
+  });
+
+  const stringList = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((v): v is string => typeof v === "string")
+      : [];
 
   return {
-    summaries,
-    runs,
-    sets,
-    mesocycles: { count: mesoRes.count ?? 0 },
-    weeklyPlans: { count: plansRes.count ?? 0 },
-    exercises,
-    runTypes,
+    summaries: range(raw.summaries),
+    runs: range(raw.runs),
+    sets: range(raw.sets),
+    mesocycles: countOnly(raw.mesocycles),
+    weeklyPlans: countOnly(raw.weeklyPlans),
+    exercises: stringList(raw.exercises),
+    runTypes: stringList(raw.runTypes),
   };
 }
 
@@ -656,9 +627,12 @@ export async function buildContext(
     getCurrentWeeklyPlan(athleteId, weekStart),
     getTodaysPlan(athleteId, localDate),
     getTodaysReadiness(athleteId, localDate),
-    getTodaysMessages(athleteId, localDate),
+    getTodaysMessages(athleteId, localDate, tab),
     getRecentSummaries(athleteId, localDate, SUMMARY_LIMIT[tab]),
-    getTodaysInsights(athleteId, localDate),
+    // Insights are only rendered on the coach tab — skip the fetch elsewhere
+    tab === "coach"
+      ? getTodaysInsights(athleteId, localDate)
+      : Promise.resolve([]),
     getContextIndexCounts(athleteId),
     getTodaysActions(athleteId, localDate),
   ]);

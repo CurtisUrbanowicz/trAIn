@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { pushLog } from "@/lib/debugLog";
+import { SUMMARISE } from "@/lib/models";
 import { getWeekStartMondayUtc } from "@/lib/context";
 import { loadSummariserSystemPrompt } from "@/prompts/manifest";
 
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
         if (existing && existing.length > 0) continue;
 
         // Fetch all data for this date in parallel
+        const contextStart = Date.now();
         const [messagesResult, runsResult, setsResult, profileResult] = await Promise.all([
           supabase
             .from("messages")
@@ -113,6 +115,7 @@ export async function POST(request: Request) {
             .limit(1)
             .single(),
         ]);
+        const contextMs = Date.now() - contextStart;
 
         // Format user message content
         const sections: string[] = [];
@@ -146,7 +149,7 @@ export async function POST(request: Request) {
         if (sections.length === 0) continue;
 
         const response = await anthropic.messages.create({
-          model: "claude-opus-4-6",
+          model: SUMMARISE,
           max_tokens: 500,
           system: [
             {
@@ -183,6 +186,7 @@ export async function POST(request: Request) {
             generated++;
             pushLog("summary_generated", {
               date,
+              context_ms: contextMs,
               summaryText: summary.length > 200 ? summary.slice(0, 200) + "…" : summary,
             });
             console.log(`[summarise] generated summary for ${date}`);
@@ -228,6 +232,7 @@ export async function POST(request: Request) {
 
     for (const { date, sessionType } of candidates) {
       try {
+        const gapContextStart = Date.now();
         const [existingSummary, dayMessages, dayRuns, daySets] = await Promise.all([
           supabase
             .from("daily_summaries")
@@ -254,6 +259,7 @@ export async function POST(request: Request) {
             .eq("date", date)
             .limit(1),
         ]);
+        const gapContextMs = Date.now() - gapContextStart;
 
         if ((existingSummary.data ?? []).length > 0) continue;
         if ((dayMessages.data ?? []).length > 0) continue;
@@ -278,7 +284,7 @@ export async function POST(request: Request) {
           pushLog("error", { date, message: error.message });
         } else {
           generated++;
-          pushLog("summary_gap_filled", { date, summary });
+          pushLog("summary_gap_filled", { date, summary, context_ms: gapContextMs });
           console.log(`[summarise] gap-filled summary for ${date}`);
         }
       } catch (err) {

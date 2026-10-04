@@ -8,11 +8,12 @@ import { supabase } from "@/lib/supabase";
 import { tools } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
+import { REFLECT } from "@/lib/models";
 import { appendToolResultsWithCache } from "@/lib/cache-helpers";
 
 const THINKING_DELIMITER = "\x00THINKING\x00";
 const FINAL_DELIMITER = "\x00FINAL\x00";
-const MODEL = "claude-opus-4-6";
+const MODEL = REFLECT;
 
 type ReflectionType = "pulse" | "deep";
 
@@ -111,16 +112,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ insight: existing, cached: true });
     }
 
+    const contextStart = Date.now();
     const { systemPrompt, volatileBlock } =
       type === "pulse"
         ? await buildPulseContext(athleteId, localDate)
         : await buildDeepContext(athleteId, localDate);
+    const contextMs = Date.now() - contextStart;
 
     pushLog("context_loaded", {
       tab: `reflect-${type}`,
       type,
       contextBlockLength: volatileBlock.length,
       systemPromptLength: systemPrompt.length,
+      context_ms: contextMs,
     });
     pushLog("model_used", { model: MODEL, type });
 
@@ -208,21 +212,37 @@ export async function POST(request: Request) {
                 finalMsg.content as Anthropic.Messages.ContentBlockParam[],
             });
 
-            const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-            for (const block of finalMsg.content) {
-              if (block.type !== "tool_use") continue;
+            const toolUses = finalMsg.content.filter(
+              (b): b is Anthropic.Messages.ToolUseBlock =>
+                b.type === "tool_use"
+            );
 
-              const input = block.input as Record<string, unknown>;
-              const summary = summariseToolInput(block.name, input);
+            // Announce all calls up front, then execute in parallel —
+            // results are processed in block order below.
+            for (const block of toolUses) {
+              const summary = summariseToolInput(
+                block.name,
+                block.input as Record<string, unknown>
+              );
               controller.enqueue(
                 encoder.encode(`\n→ ${block.name}(${summary})\n`)
               );
+            }
 
-              const result = await safeExecuteTool(
-                block.name,
-                input,
-                toolContext
-              );
+            const results = await Promise.all(
+              toolUses.map((block) =>
+                safeExecuteTool(
+                  block.name,
+                  block.input as Record<string, unknown>,
+                  toolContext
+                )
+              )
+            );
+
+            const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+            toolUses.forEach((block, idx) => {
+              const input = block.input as Record<string, unknown>;
+              const result = results[idx]!;
 
               pushLog("tool_call", {
                 name: block.name,
@@ -242,7 +262,7 @@ export async function POST(request: Request) {
                 tool_use_id: block.id,
                 content: result,
               });
-            }
+            });
 
             appendToolResultsWithCache(apiMessages, toolResults);
 

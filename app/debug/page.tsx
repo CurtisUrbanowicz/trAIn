@@ -14,6 +14,7 @@ const TYPE_COLORS: Record<string, string> = {
   context_loaded: "#8a8f98",
   summary_generated: "#22c55e",
   error: "#ef4444",
+  timing: "#f59e0b",
 };
 
 export default function DebugPage() {

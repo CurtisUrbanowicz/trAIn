@@ -8,7 +8,8 @@ export type DebugEntryType =
   | "context_loaded"
   | "error"
   | "cache_usage"
-  | "model_used";
+  | "model_used"
+  | "timing";
 
 export interface DebugEntry {
   timestamp: string;
