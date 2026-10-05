@@ -373,7 +373,17 @@ Resolves the open question "Cron / background generation of reflections — wort
 Rejected: a daily cron (timezone, no wake signal), running reflections before the summary (they read it), generating a Coach opener from the insights (the cards are the content, unchanged).
 
 
-2026-10-05 — CHAT REPLY INTEGRITY
+2026-10-05 — TURN RECORDS, READINESS, REPLY INTEGRITY, OPUS 5.5, TURNS THAT OUTLIVE THE APP
+
+Full turn records, kept 30 days — turn_records and /debug/turns
+Decided: 2026-10-05
+Debugging a turn meant piecing together the context block, each tool call's full result and the final reply from debug-log fragments. Every chat turn is now written to turn_records after the stream closes (waitUntil, so no added latency) and viewed at /debug/turns. The row holds the full context block, so the table is RLS deny-all like wearable_tokens and is read only through the service-role client. Thinking text is not stored. A pg_cron job deletes rows older than 30 days — no app code, no Vercel cron.
+Rejected: storing thinking (never persisted, by the earlier decision), cleanup inside the request path (work on every turn), a Vercel cron (a secret-gated route for a one-line delete).
+
+One readiness row per athlete per date — amends "Whoop as an automatic readiness source"
+Decided: 2026-10-05
+readiness appended rows: 27 dates had duplicates (up to six), including a manual copy of the Whoop row on 2026-10-05, because the brain re-logged numbers it could already see in context. Three changes. The context block labels today's readiness as stored, with its source (manual or whoop), so the brain stops calling log_readiness for values in front of it — data labelling only, prompts untouched. A unique constraint on (athlete_id, date) replaces the Whoop-only partial index. log_readiness merge-upserts (supplied fields overwrite, omitted ones keep their values) and relabels the row manual; Whoop sync and backfill insert only if absent, so strict no-overwrite stands. The one-off dedupe kept the newest row per date with two reviewed exceptions: the Whoop row over its identical manual copy, and a complete row over a newer one missing the recovery score.
+Rejected: a prompt rule against re-logging (labelling the data was enough), letting Whoop overwrite manual rows.
 
 Persist all model text; NDJSON stream protocol; thinking on Today; code-generated tool status lines — supersedes "Streaming partial text between tool calls" and amends "Extended thinking on Week, Season, Coach and reflection — not Today"
 Decided: 2026-10-05
@@ -390,6 +400,11 @@ Decided: 2026-10-05. Supersedes the per-tab thinking budgets; closes the open "O
 Today turns were slow on 4.6 (short replies 4.5–9.8s, lookups 10–22s), and thinking wasn't the cause: per-call model start-up and context building were. Opus 5.5 is faster on third-party measurements, a stronger model, and thinks adaptively — it decides per turn whether to think, so trivial turns stay fast while planning still gets reasoning. Effort medium everywhere; prompts unchanged. Acceptance test is the 4.7 rollback: days_between still called, date maths right, voice not duller — plus replies, summaries and insights within their length caps and reflection within its iteration caps.
 Rejected: 4.6 with adaptive (no speed gain), Sonnet 5.5 (held as the next lever for Today), thinking off after commit (hardcoded rule; breaks the cache), per-turn effort routing (adaptive already varies per turn).
 
+
+Empty turns, silent turns, truncated tool rounds; live Coach cards on Opus 5.5
+Decided: 2026-10-05
+A turn that produced no text (a refusal, an empty safety-net call) left an empty assistant entry in the client's history; the next request wrapped it in a cached text block, which the API rejects, so every message failed until a reload. The route now drops blank history entries and the hook drops an empty placeholder. A turn that ends with no reply text streams a fixed line ("Lost my thread there — send that again?") and logs the stop reason; nothing is persisted. The safety-net call carries a trailing nudge on the last user turn ("No more lookups this turn. Reply with what you have."), the same pattern as reflect's guard — without it, tools-off Opus 5.5 returned empty turns three times out of three. A tool round cut off by max_tokens skips its tool calls, since their inputs may be truncated, and goes straight to the safety net. Reflect forwards summarized thinking deltas into the Coach card stream: on Opus 5.5 the notes between tool calls arrive as thinking, not text, and the cards had gone quiet.
+Rejected: auto-resend after an empty turn, executing truncated tool inputs, a model-written status line.
 
 Chat turns finish without the app; typing dots; one ID per message
 Decided: 2026-10-05.
@@ -411,3 +426,5 @@ OPEN — REFLECTION LAYER (carried from the 2026-04-22 addendum; status as of 20
 OPEN DIAGNOSTICS — revisit after current investigations conclude
 * RESOLVED 2026-10-05 (see "Switch all model calls to Claude Opus 5.5 with adaptive thinking"): all calls moved to Opus 5.5; the 4.7 symptoms below are its acceptance test. Original note: Opus 4.6 vs 4.7 coaching quality A/B (flipped 2026-04-30 in commit a19fe29). Symptoms on 4.7: brain stopped calling days_between, weakened calendar arithmetic ("next week"), generally duller responses. Run on 4.6 for a couple days, then decide whether to flip back. If 4.6 fixes it, options on returning to 4.7 are: hoist days_between rule from Section 5 to Section 2 of base.md, add explicit triggers ("next week"/"this weekend"), or wrap date claims in a planning_check pattern.
 * RESOLVED 2026-10-05 (see "Persist all model text; NDJSON stream protocol…"): option (b), all text persisted. Original note: Pre-tool "thinking" text snapping at the FINAL_DELIMITER. Symptom: model produces substantive coaching pre-tool (visible as italic streaming), then post-tool produces a different/blander response that replaces it on screen and is what gets persisted. Architecture is doing what it was designed to do — base.md "What persists is what you say last" routes coaching to post-tool — but Opus 4.7 violates the compartmentalization. Wait for the 4.6 test before deciding. If 4.6 keeps coaching post-tool, design is fine. If 4.6 also snaps, two paths: (a) tighten pre-tool to forbid any coaching content (force it to be a 5-word acknowledgment); (b) persist both pre-tool and post-tool text and let the model redistribute freely (revisits the rejection in the streaming Decision_Log entry above).
+* Reply text arrives in one burst on Opus 5.5 (observed 2026-10-05). Tool status lines stream as they happen, but every text frame of a reply lands within a few milliseconds — on the previous route too, so it is upstream, most likely the API releasing text only after the thinking summary. Dots and status lines cover the wait; the reply itself no longer types out. Check whether display "omitted" changes it before accepting.
+* Reloading during the opener double-fires it (observed 2026-10-05). A sent message survives a reload because its row hydrates and the hook waits for the reply; the opener has no user row, so a reload mid-opener hydrates nothing and starts a second opener — two opener bubbles. Options: a server-side turn-in-flight marker, or a placeholder reply row written at turn start.
