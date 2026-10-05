@@ -391,6 +391,12 @@ Today turns were slow on 4.6 (short replies 4.5–9.8s, lookups 10–22s), and t
 Rejected: 4.6 with adaptive (no speed gain), Sonnet 5.5 (held as the next lever for Today), thinking off after commit (hardcoded rule; breaks the cache), per-turn effort routing (adaptive already varies per turn).
 
 
+Chat turns finish without the app; typing dots; one ID per message
+Decided: 2026-10-05.
+Opus 5.5 turns can take 10–30s, occasionally minutes, and the athlete was watching them. A turn now runs to completion and saves its reply whether or not the app is open (waitUntil, within the 300s limit); closing never cancels, by choice. Typing dots show from send until the status line or reply arrives, and after a reopen until the saved reply lands via Supabase realtime. Every message has an ID from the start — the reply's from the server's first frame, the athlete's from the phone — and every path writes by ID, so a reply can never appear twice. Input stays locked while a reply is pending; after 5 minutes without one, the dots become "Didn't come through — send it again?".
+Rejected: polling (realtime already in use), live thinking after a reopen (thinking is never stored), queueing a second message behind a pending one, push notifications (later).
+
+
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.
 * How the end-of-session reflection gets triggered

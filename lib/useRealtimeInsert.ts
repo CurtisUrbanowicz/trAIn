@@ -5,13 +5,14 @@ import { supabase } from "@/lib/supabase";
 
 /**
  * Subscribe to Postgres INSERTs on `table`, optionally filtered
- * (e.g. `athlete_id=eq.<uuid>`). The callback is captured via ref so
+ * (e.g. `athlete_id=eq.<uuid>`). The callback receives the inserted row
+ * (callers that only refetch can ignore it) and is captured via ref so
  * changes to it don't retrigger the subscription.
  */
 export function useRealtimeInsert(
   channelName: string,
   table: string,
-  onInsert: () => void,
+  onInsert: (row: Record<string, unknown>) => void,
   filter?: string,
 ): void {
   const cbRef = useRef(onInsert);
@@ -34,7 +35,9 @@ export function useRealtimeInsert(
 
     const channel = supabase
       .channel(channelName)
-      .on("postgres_changes", config, () => cbRef.current())
+      .on("postgres_changes", config, (payload) =>
+        cbRef.current((payload.new ?? {}) as Record<string, unknown>)
+      )
       .subscribe();
 
     return () => {

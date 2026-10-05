@@ -37,6 +37,10 @@ export type TurnTiming = {
   tool_rounds: number;
   rounds: TurnRound[];
   total_ms: number;
+  // Whether the client was still connected at the end of the turn, and
+  // when it left (ms from request start) if not
+  client_connected?: boolean;
+  client_left_ms?: number | null;
   error?: string;
 };
 

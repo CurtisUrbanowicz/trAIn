@@ -96,13 +96,45 @@ export default function ChatView({
           const prev: Message | undefined = messages[i - 1];
           const sameSender = prev?.role === msg.role;
           const isUser = msg.role === "user";
-          const isLastStreaming = isStreaming && i === messages.length - 1;
+          const isLast = i === messages.length - 1;
+          const isLastStreaming = isStreaming && isLast;
 
-          if (!msg.content) return null;
+          if (!msg.content) {
+            // Reply placeholder: typing dots from send until the status
+            // line or the first text arrives (and after a reopen, until the
+            // saved reply lands)
+            if (msg.pending && isLast && loading && !status) {
+              return (
+                <div
+                  key={msg.id}
+                  style={{ marginTop: 10 }}
+                  className="flex justify-start"
+                >
+                  <div
+                    aria-label="Coach is typing"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "14px 16px",
+                      background: "var(--bg-coach-bubble)",
+                      border: "0.5px solid var(--border-default)",
+                      borderRadius: "18px 18px 18px 4px",
+                    }}
+                  >
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          }
 
           return (
             <div
-              key={i}
+              key={msg.id}
               style={{ marginTop: i === 0 ? 0 : sameSender ? 4 : 10 }}
               className={isUser ? "flex justify-end" : "flex justify-start"}
             >
