@@ -313,9 +313,14 @@ async function logReadiness(
     return "recovery_score must be between 0 and 100";
   }
 
+  // One row per athlete per date (readiness_athlete_date_unique). Upsert
+  // merges: supplied fields overwrite, omitted fields keep their stored
+  // values. Any manual write relabels the row manual (source null), even
+  // if it started as a Whoop sync.
   const row: Record<string, unknown> = {
     athlete_id: context.athleteId,
     date,
+    source: null,
     timestamp: new Date().toISOString(),
   };
   if (input.hrv != null) row.hrv = input.hrv;
@@ -323,7 +328,9 @@ async function logReadiness(
   if (input.recovery_score != null) row.recovery_score = input.recovery_score;
   if (input.sleep_hours != null) row.sleep_hours = input.sleep_hours;
 
-  const { error } = await supabase.from("readiness").insert(row);
+  const { error } = await supabase
+    .from("readiness")
+    .upsert(row, { onConflict: "athlete_id,date" });
   if (error) return `Error logging readiness: ${error.message}`;
 
   const parts: string[] = [];

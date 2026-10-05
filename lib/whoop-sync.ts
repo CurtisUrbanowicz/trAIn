@@ -78,8 +78,8 @@ async function resolveRecovery(
 
 /**
  * Syncs one Whoop recovery into `readiness`. Strict no-overwrite: any
- * existing row for the date wins, and the partial unique index
- * readiness_whoop_one_per_date makes concurrent runs safe. Shared by
+ * existing row for the date wins, and the insert-if-absent upsert on
+ * readiness_athlete_date_unique makes concurrent runs safe. Shared by
  * POST /api/whoop/sync (newest recovery) and the morning chain (the
  * recovery named by a webhook's sleep id).
  */

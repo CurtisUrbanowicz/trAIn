@@ -391,20 +391,29 @@ export async function insertWhoopReadiness(
   athleteId: string,
   values: ReadinessValues
 ): Promise<InsertOutcome> {
-  const { error } = await supabase.from("readiness").insert({
-    athlete_id: athleteId,
-    date: values.date,
-    hrv: values.hrv,
-    rhr: values.rhr,
-    recovery_score: values.recovery_score,
-    sleep_hours: values.sleep_hours,
-    source: "whoop",
-    timestamp: new Date().toISOString(),
-  });
-  if (!error) return "written";
-  // 23505: a concurrent run already wrote this date (unique index
-  // readiness_whoop_one_per_date) — skipped, not a failure
-  if (error.code === "23505") return "duplicate";
-  console.error("[whoop] readiness insert failed:", error.message);
-  return "error";
+  // Insert-if-absent upsert on readiness_athlete_date_unique: an existing
+  // row for the date (manual or Whoop) always wins, so a concurrent run or
+  // an earlier manual log turns this into a no-op. The returned rows tell
+  // the two apart: empty means the row already existed.
+  const { data, error } = await supabase
+    .from("readiness")
+    .upsert(
+      {
+        athlete_id: athleteId,
+        date: values.date,
+        hrv: values.hrv,
+        rhr: values.rhr,
+        recovery_score: values.recovery_score,
+        sleep_hours: values.sleep_hours,
+        source: "whoop",
+        timestamp: new Date().toISOString(),
+      },
+      { onConflict: "athlete_id,date", ignoreDuplicates: true }
+    )
+    .select("id");
+  if (error) {
+    console.error("[whoop] readiness upsert failed:", error.message);
+    return "error";
+  }
+  return (data ?? []).length > 0 ? "written" : "duplicate";
 }
