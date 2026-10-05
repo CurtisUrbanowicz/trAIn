@@ -9,7 +9,8 @@ import { supabase } from "@/lib/supabase";
 import { tools } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
-import { REFLECT } from "@/lib/models";
+import { REFLECT, ADAPTIVE_THINKING, REFLECT_EFFORT } from "@/lib/models";
+import { flagIncompleteStop, thinkingTokensFromEvent } from "@/lib/model-response";
 import { appendToolResultsWithCache } from "@/lib/cache-helpers";
 
 export type { ReflectionType };
@@ -151,6 +152,8 @@ export async function runReflection(
 
     let insightLogged = false;
     let lastUsage: Anthropic.Messages.Usage | null = null;
+    // Per iteration, from the raw message_delta (the accumulator drops it)
+    const thinkingTokensPerIteration: Array<number | null> = [];
     const maxIters = MAX_ITERATIONS[type];
 
     for (let i = 0; i < maxIters; i++) {
@@ -173,11 +176,14 @@ export async function runReflection(
         pushLog("guard_fired", { type, iteration: iterations, maxIters });
       }
 
+      let thinkingTokens: number | null = null;
       const finalMsg = await callWithRetry(async () => {
+        thinkingTokens = null;
         const stream = anthropic.messages.stream({
           model: MODEL,
-          max_tokens: 10000,
-          thinking: { type: "enabled", budget_tokens: 4096 },
+          max_tokens: 16000,
+          thinking: ADAPTIVE_THINKING,
+          output_config: { effort: REFLECT_EFFORT },
           system: [
             {
               type: "text",
@@ -190,6 +196,8 @@ export async function runReflection(
         });
 
         for await (const event of stream) {
+          const tt = thinkingTokensFromEvent(event);
+          if (tt !== null) thinkingTokens = tt;
           if (
             event.type === "content_block_delta" &&
             event.delta.type === "text_delta"
@@ -202,6 +210,8 @@ export async function runReflection(
       });
 
       lastUsage = finalMsg.usage;
+      thinkingTokensPerIteration.push(thinkingTokens);
+      flagIncompleteStop("reflect", finalMsg, { type, iteration: iterations });
 
       if (finalMsg.stop_reason !== "tool_use") {
         break;
@@ -259,10 +269,13 @@ export async function runReflection(
     if (lastUsage) {
       pushLog("cache_usage", {
         input_tokens: lastUsage.input_tokens,
-        // Thinking tokens are counted inside output_tokens (SDK 0.80.0
-        // has no separate field)
+        // output_tokens includes thinking tokens
         output_tokens: lastUsage.output_tokens,
-        thinking_enabled: true,
+        thinking_tokens: thinkingTokensPerIteration,
+        thinking_tokens_total: thinkingTokensPerIteration.reduce<number>(
+          (acc, n) => acc + (n ?? 0),
+          0
+        ),
         cache_write: lastUsage.cache_creation_input_tokens,
         cache_read: lastUsage.cache_read_input_tokens,
       });

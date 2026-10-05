@@ -24,6 +24,7 @@ export type TurnRound = {
   tools_ms: number;
   tools: number;
   text_chars?: number;
+  thinking_tokens?: number | null;
   // Reply text the model wrote in this round (all rounds are persisted)
   text?: string;
 };
@@ -41,6 +42,8 @@ export type TurnUsageRound = {
   round: number;
   input_tokens: number;
   output_tokens: number;
+  // From usage.output_tokens_details; null when the model didn't report it
+  thinking_tokens: number | null;
   cache_read: number;
   cache_write: number;
 };
@@ -48,6 +51,7 @@ export type TurnUsageRound = {
 export type TurnUsage = {
   input_tokens: number;
   output_tokens: number;
+  thinking_tokens: number;
   cache_read: number;
   cache_write: number;
   rounds: TurnUsageRound[];

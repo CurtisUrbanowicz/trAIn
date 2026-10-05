@@ -12,7 +12,13 @@ import {
   type TurnToolCall,
   type TurnUsageRound,
 } from "@/lib/turnRecords";
-import { CHAT_PRIMARY, CHAT_FALLBACK } from "@/lib/models";
+import {
+  CHAT_PRIMARY,
+  CHAT_FALLBACK,
+  ADAPTIVE_THINKING,
+  CHAT_EFFORT,
+} from "@/lib/models";
+import { flagIncompleteStop, thinkingTokensFromEvent } from "@/lib/model-response";
 import {
   appendToolResultsWithCache,
   historyWithLastAssistantCached,
@@ -27,15 +33,6 @@ const MAX_TOOL_ITERATIONS: Record<TabType, number> = {
   week: 5,
   season: 10,
   coach: 10,
-};
-// Extended thinking on every tab. Reasoning belongs in thinking, never in
-// text — all text is the reply and is persisted. Today gets the smaller
-// budget for latency.
-const THINKING_BUDGET_TOKENS: Record<TabType, number> = {
-  today: 1024,
-  week: 2048,
-  season: 2048,
-  coach: 2048,
 };
 
 const TAB_VALUES = new Set<TabType>([
@@ -195,13 +192,10 @@ export async function POST(request: Request) {
 
     const toolsForRequest = getToolsForTab(tab);
 
-    // Decided once per request and applied to every call in the tool loop —
-    // never toggled mid-loop, so thinking blocks in earlier assistant turns
-    // stay valid for subsequent calls.
-    const thinking: Anthropic.ThinkingConfigParam = {
-      type: "enabled",
-      budget_tokens: THINKING_BUDGET_TOKENS[tab],
-    };
+    // Adaptive thinking on every call; reasoning belongs in thinking, never
+    // in text — all text is the reply and is persisted. Effort is fixed for
+    // the whole request (changing it between calls breaks the prompt cache).
+    const effort = CHAT_EFFORT[tab];
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -214,6 +208,7 @@ export async function POST(request: Request) {
           tools_ms: number;
           tools: number;
           text_chars: number;
+          thinking_tokens: number | null;
           text?: string;
         }> = [];
 
@@ -221,11 +216,15 @@ export async function POST(request: Request) {
         // memory and inserted after the stream closes. No thinking text.
         const turnToolCalls: TurnToolCall[] = [];
         const usageRounds: TurnUsageRound[] = [];
-        const recordUsage = (usage: Anthropic.Messages.Usage) => {
+        const recordUsage = (
+          usage: Anthropic.Messages.Usage,
+          thinkingTokens: number | null
+        ) => {
           usageRounds.push({
             round: usageRounds.length + 1,
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
+            thinking_tokens: thinkingTokens,
             cache_read: usage.cache_read_input_tokens ?? 0,
             cache_write: usage.cache_creation_input_tokens ?? 0,
           });
@@ -260,8 +259,9 @@ export async function POST(request: Request) {
         const saveTurnRecord = (finalMessage: string | null, error?: string) => {
           // Tool calls finish in parallel; restore block order.
           turnToolCalls.sort((a, b) => a.round - b.round || a.index - b.index);
-          const sum = (k: keyof Omit<TurnUsageRound, "round">) =>
-            usageRounds.reduce((acc, r) => acc + r[k], 0);
+          const sum = (
+            k: "input_tokens" | "output_tokens" | "thinking_tokens" | "cache_read" | "cache_write"
+          ) => usageRounds.reduce((acc, r) => acc + (r[k] ?? 0), 0);
           waitUntil(
             insertTurnRecord({
               athlete_id: ATHLETE_ID,
@@ -283,6 +283,7 @@ export async function POST(request: Request) {
               usage: {
                 input_tokens: sum("input_tokens"),
                 output_tokens: sum("output_tokens"),
+                thinking_tokens: sum("thinking_tokens"),
                 cache_read: sum("cache_read"),
                 cache_write: sum("cache_write"),
                 rounds: usageRounds,
@@ -313,9 +314,15 @@ export async function POST(request: Request) {
         // safety net (toolChoiceNone) alike.
         const runRound = async (
           toolChoiceNone: boolean
-        ): Promise<{ response: Anthropic.Messages.Message; text: string; apiMs: number }> => {
+        ): Promise<{
+          response: Anthropic.Messages.Message;
+          text: string;
+          apiMs: number;
+          thinkingTokens: number | null;
+        }> => {
           const apiStart = Date.now();
           let text = "";
+          let thinkingTokens: number | null = null;
           let pendingWs = "";
           let started = false;
 
@@ -342,6 +349,7 @@ export async function POST(request: Request) {
             text = "";
             pendingWs = "";
             started = false;
+            thinkingTokens = null;
             // tool_use input arrives as JSON deltas; assembled per block so
             // the status line can read it when the block closes.
             const toolInputs = new Map<number, { name: string; json: string }>();
@@ -349,7 +357,8 @@ export async function POST(request: Request) {
             const stream = anthropic.messages.stream({
               model,
               max_tokens: 10000,
-              thinking,
+              thinking: ADAPTIVE_THINKING,
+              output_config: { effort },
               system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
               messages: apiMessages,
               tools: toolsForRequest,
@@ -357,6 +366,9 @@ export async function POST(request: Request) {
             });
 
             for await (const event of stream) {
+              // The accumulator drops output_tokens_details; read it raw
+              const tt = thinkingTokensFromEvent(event);
+              if (tt !== null) thinkingTokens = tt;
               if (event.type === "content_block_start") {
                 if (event.content_block.type === "tool_use") {
                   toolInputs.set(event.index, {
@@ -388,9 +400,10 @@ export async function POST(request: Request) {
             return await stream.finalMessage();
           });
 
-          recordUsage(response.usage);
+          flagIncompleteStop("chat", response, { tab, round: usageRounds.length + 1 });
+          recordUsage(response.usage, thinkingTokens);
           if (text) roundTexts.push(text);
-          return { response, text, apiMs: Date.now() - apiStart };
+          return { response, text, apiMs: Date.now() - apiStart, thinkingTokens };
         };
 
         try {
@@ -398,15 +411,14 @@ export async function POST(request: Request) {
           let answered = false;
 
           for (let round = 1; round <= MAX_TOOL_ITERATIONS[tab]; round++) {
-            const { response, text, apiMs } = await runRound(false);
+            const { response, text, apiMs, thinkingTokens } = await runRound(false);
 
             if (round === 1) {
               pushLog("cache_usage", {
                 input_tokens: response.usage.input_tokens,
-                // SDK 0.80.0 has no separate thinking-token field — thinking
-                // tokens are counted inside output_tokens.
+                // output_tokens includes thinking_tokens
                 output_tokens: response.usage.output_tokens,
-                thinking_enabled: true,
+                thinking_tokens: thinkingTokens,
                 cache_write: response.usage.cache_creation_input_tokens,
                 cache_read: response.usage.cache_read_input_tokens,
               });
@@ -423,6 +435,7 @@ export async function POST(request: Request) {
                 tools_ms: 0,
                 tools: 0,
                 text_chars: text.length,
+                thinking_tokens: thinkingTokens,
                 ...(text ? { text } : {}),
               });
               answered = text !== "";
@@ -443,6 +456,7 @@ export async function POST(request: Request) {
               tools_ms: Date.now() - toolsStart,
               tools: toolResults.length,
               text_chars: text.length,
+              thinking_tokens: thinkingTokens,
               ...(text ? { text } : {}),
             });
             appendToolResultsWithCache(apiMessages, toolResults);
@@ -452,13 +466,14 @@ export async function POST(request: Request) {
           // or the last round ended with no text. One more call, tools
           // disabled, to get the reply.
           if (!answered) {
-            const { text, apiMs } = await runRound(true);
+            const { text, apiMs, thinkingTokens } = await runRound(true);
             rounds.push({
               round: rounds.length + 1,
               api_ms: apiMs,
               tools_ms: 0,
               tools: 0,
               text_chars: text.length,
+              thinking_tokens: thinkingTokens,
               ...(text ? { text } : {}),
             });
           }
@@ -492,6 +507,7 @@ export async function POST(request: Request) {
               tools_ms: r.tools_ms,
               tools: r.tools,
               text_chars: r.text_chars,
+              thinking_tokens: r.thinking_tokens,
             })),
             total_ms: Date.now() - t0,
           });

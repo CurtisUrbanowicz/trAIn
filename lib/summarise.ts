@@ -2,7 +2,8 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import { pushLog } from "@/lib/debugLog";
-import { SUMMARISE } from "@/lib/models";
+import { SUMMARISE, ADAPTIVE_THINKING, SUMMARISE_EFFORT } from "@/lib/models";
+import { flagIncompleteStop, thinkingTokensOf } from "@/lib/model-response";
 import { getWeekStartMondayUtc } from "@/lib/context";
 import { loadSummariserSystemPrompt } from "@/prompts/manifest";
 
@@ -37,6 +38,130 @@ export async function hasSummaryForDate(
     .eq("date", date)
     .limit(1);
   return (data ?? []).length > 0;
+}
+
+export type GeneratedSummary = {
+  summary: string;
+  stopReason: Anthropic.Messages.StopReason | null;
+  // false on stop_reason max_tokens or refusal (already logged) — never insert
+  complete: boolean;
+  thinkingTokens: number | null;
+  outputTokens: number;
+  contextMs: number;
+  apiMs: number;
+};
+
+/**
+ * Builds the summariser request for one date and calls the model. No DB
+ * writes — summariseMissing inserts the result. Null when the date has
+ * nothing to summarise.
+ */
+export async function generateSummary(
+  anthropic: Anthropic,
+  summariserSystemPrompt: string,
+  athleteId: string,
+  date: string
+): Promise<GeneratedSummary | null> {
+  // Fetch all data for this date in parallel
+  const contextStart = Date.now();
+  const [messagesResult, runsResult, setsResult, profileResult] = await Promise.all([
+    supabase
+      .from("messages")
+      .select("tab, role, content")
+      .eq("athlete_id", athleteId)
+      .eq("date", date)
+      .order("timestamp", { ascending: true }),
+    supabase
+      .from("runs")
+      .select("*")
+      .eq("athlete_id", athleteId)
+      .eq("date", date),
+    supabase
+      .from("sets")
+      .select("*")
+      .eq("athlete_id", athleteId)
+      .eq("date", date),
+    supabase
+      .from("athlete_profile")
+      .select("content")
+      .eq("athlete_id", athleteId)
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .single(),
+  ]);
+  const contextMs = Date.now() - contextStart;
+
+  // Format user message content
+  const sections: string[] = [];
+
+  const profile = profileResult.data?.content ?? "";
+  if (profile) {
+    sections.push(`ATHLETE PROFILE:\n${profile}`);
+  }
+
+  const messages = messagesResult.data ?? [];
+  if (messages.length > 0) {
+    const formatted = messages
+      .map(
+        (m: { tab: string; role: string; content: string }) =>
+          `[${m.tab}] ${m.role}: ${m.content}`
+      )
+      .join("\n");
+    sections.push(`MESSAGES:\n${formatted}`);
+  }
+
+  const runs = runsResult.data ?? [];
+  if (runs.length > 0) {
+    sections.push(`RUNS:\n${JSON.stringify(runs, null, 2)}`);
+  }
+
+  const sets = setsResult.data ?? [];
+  if (sets.length > 0) {
+    sections.push(`SETS:\n${JSON.stringify(sets, null, 2)}`);
+  }
+
+  if (sections.length === 0) return null;
+
+
+  const apiStart = Date.now();
+  const response = await anthropic.messages.create({
+    model: SUMMARISE,
+    // Covers adaptive thinking plus the summary — at 500, thinking could
+    // truncate or empty the summary
+    max_tokens: 4000,
+    thinking: ADAPTIVE_THINKING,
+    output_config: { effort: SUMMARISE_EFFORT },
+    system: [
+      {
+        type: "text",
+        text: summariserSystemPrompt,
+        cache_control: { type: "ephemeral", ttl: "1h" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: `DATE: ${date}\n\n${sections.join("\n\n")}`,
+      },
+    ],
+  });
+  const apiMs = Date.now() - apiStart;
+
+  // Read by block type — responses can start with thinking blocks
+  let summary = "";
+  for (const block of response.content) {
+    if (block.type === "text") summary += block.text;
+  }
+
+  return {
+    summary,
+    stopReason: response.stop_reason,
+    complete: !flagIncompleteStop("summarise", response, { date }),
+    thinkingTokens: thinkingTokensOf(response.usage),
+    outputTokens: response.usage.output_tokens,
+    contextMs,
+    apiMs,
+  };
 }
 
 export type SummariseResult = { generated: number; errors: number };
@@ -96,89 +221,21 @@ export async function summariseMissing(
       // Idempotency check — re-verify before generating
       if (await hasSummaryForDate(athleteId, date)) continue;
 
-      // Fetch all data for this date in parallel
-      const contextStart = Date.now();
-      const [messagesResult, runsResult, setsResult, profileResult] = await Promise.all([
-        supabase
-          .from("messages")
-          .select("tab, role, content")
-          .eq("athlete_id", athleteId)
-          .eq("date", date)
-          .order("timestamp", { ascending: true }),
-        supabase
-          .from("runs")
-          .select("*")
-          .eq("athlete_id", athleteId)
-          .eq("date", date),
-        supabase
-          .from("sets")
-          .select("*")
-          .eq("athlete_id", athleteId)
-          .eq("date", date),
-        supabase
-          .from("athlete_profile")
-          .select("content")
-          .eq("athlete_id", athleteId)
-          .order("timestamp", { ascending: false })
-          .limit(1)
-          .single(),
-      ]);
-      const contextMs = Date.now() - contextStart;
+      const result = await generateSummary(
+        anthropic,
+        summariserSystemPrompt,
+        athleteId,
+        date
+      );
+      if (!result) continue;
 
-      // Format user message content
-      const sections: string[] = [];
-
-      const profile = profileResult.data?.content ?? "";
-      if (profile) {
-        sections.push(`ATHLETE PROFILE:\n${profile}`);
+      // Truncated or refused: already logged; skip so the next run retries
+      if (!result.complete) {
+        errors++;
+        continue;
       }
 
-      const messages = messagesResult.data ?? [];
-      if (messages.length > 0) {
-        const formatted = messages
-          .map(
-            (m: { tab: string; role: string; content: string }) =>
-              `[${m.tab}] ${m.role}: ${m.content}`
-          )
-          .join("\n");
-        sections.push(`MESSAGES:\n${formatted}`);
-      }
-
-      const runs = runsResult.data ?? [];
-      if (runs.length > 0) {
-        sections.push(`RUNS:\n${JSON.stringify(runs, null, 2)}`);
-      }
-
-      const sets = setsResult.data ?? [];
-      if (sets.length > 0) {
-        sections.push(`SETS:\n${JSON.stringify(sets, null, 2)}`);
-      }
-
-      if (sections.length === 0) continue;
-
-      const response = await anthropic.messages.create({
-        model: SUMMARISE,
-        max_tokens: 500,
-        system: [
-          {
-            type: "text",
-            text: summariserSystemPrompt,
-            cache_control: { type: "ephemeral", ttl: "1h" },
-          },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: `DATE: ${date}\n\n${sections.join("\n\n")}`,
-          },
-        ],
-      });
-
-      let summary = "";
-      for (const block of response.content) {
-        if (block.type === "text") summary += block.text;
-      }
-
+      const summary = result.summary;
       if (summary) {
         const { error } = await supabase.from("daily_summaries").insert({
           athlete_id: athleteId,
@@ -195,7 +252,10 @@ export async function summariseMissing(
           generated++;
           pushLog("summary_generated", {
             date,
-            context_ms: contextMs,
+            context_ms: result.contextMs,
+            api_ms: result.apiMs,
+            stop_reason: result.stopReason,
+            thinking_tokens: result.thinkingTokens,
             summaryText: summary.length > 200 ? summary.slice(0, 200) + "…" : summary,
           });
           console.log(`[summarise] generated summary for ${date}`);
