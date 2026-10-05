@@ -104,6 +104,14 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
         if (buffer) handleLine(buffer);
       } finally {
         setStatus(null);
+        // A turn that produced no text leaves an empty placeholder; drop it
+        // so it never goes back out as history (the catch paths do the same)
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          return last && last.role === "assistant" && !last.content
+            ? prev.slice(0, -1)
+            : prev;
+        });
       }
     },
     [appendToLastAssistant]

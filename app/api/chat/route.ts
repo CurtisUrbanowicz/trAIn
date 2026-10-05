@@ -18,7 +18,11 @@ import {
   ADAPTIVE_THINKING,
   CHAT_EFFORT,
 } from "@/lib/models";
-import { flagIncompleteStop, thinkingTokensFromEvent } from "@/lib/model-response";
+import {
+  flagIncompleteStop,
+  stopDetailsOf,
+  thinkingTokensFromEvent,
+} from "@/lib/model-response";
 import {
   appendToolResultsWithCache,
   historyWithLastAssistantCached,
@@ -34,6 +38,13 @@ const MAX_TOOL_ITERATIONS: Record<TabType, number> = {
   season: 10,
   coach: 10,
 };
+
+// Trailing text block on the last user turn before the safety-net call
+// (same pattern as reflect's guard): tools are off, so answer now.
+const SAFETY_NET_NUDGE = "No more lookups this turn. Reply with what you have.";
+// Streamed, never persisted, when a turn ends with no reply text
+// (refusal, empty safety net) so the athlete never sees a silent turn.
+const EMPTY_TURN_FALLBACK = "Lost my thread there — send that again?";
 
 const TAB_VALUES = new Set<TabType>([
   "coach",
@@ -90,7 +101,10 @@ export async function POST(request: Request) {
       .filter(
         (h): h is { role: "user" | "assistant"; content: string } =>
           (h.role === "user" || h.role === "assistant") &&
-          typeof h.content === "string"
+          typeof h.content === "string" &&
+          // An empty entry (a turn that produced no text) would become an
+          // empty cached text block, which the API rejects
+          h.content.trim() !== ""
       )
       .map((h) => ({ role: h.role, content: h.content }));
 
@@ -209,6 +223,8 @@ export async function POST(request: Request) {
           tools: number;
           text_chars: number;
           thinking_tokens: number | null;
+          // Cut off by max_tokens mid-tool-use; tools not executed
+          truncated?: boolean;
           text?: string;
         }> = [];
 
@@ -309,6 +325,10 @@ export async function POST(request: Request) {
         // the text frames are emitted so the client's concatenation is
         // exactly that join, i.e. the bubble equals the persisted row.
         const roundTexts: string[] = [];
+        // Ref object: assigned inside runRound's closure, read after it
+        const lastResponse: { current: Anthropic.Messages.Message | null } = {
+          current: null,
+        };
 
         // One streaming call. Used for every round: tool rounds and the
         // safety net (toolChoiceNone) alike.
@@ -400,6 +420,7 @@ export async function POST(request: Request) {
             return await stream.finalMessage();
           });
 
+          lastResponse.current = response;
           flagIncompleteStop("chat", response, { tab, round: usageRounds.length + 1 });
           recordUsage(response.usage, thinkingTokens);
           if (text) roundTexts.push(text);
@@ -442,6 +463,23 @@ export async function POST(request: Request) {
               break;
             }
 
+            // Cut off by the token cap mid-tool-use: the inputs may be
+            // incomplete, so neither execute them nor replay the turn.
+            // Straight to the safety net.
+            if (response.stop_reason === "max_tokens") {
+              rounds.push({
+                round,
+                api_ms: apiMs,
+                tools_ms: 0,
+                tools: 0,
+                text_chars: text.length,
+                thinking_tokens: thinkingTokens,
+                truncated: true,
+                ...(text ? { text } : {}),
+              });
+              break;
+            }
+
             // Append the assistant turn (thinking + text + tool_use blocks)
             apiMessages.push({
               role: "assistant" as const,
@@ -466,6 +504,18 @@ export async function POST(request: Request) {
           // or the last round ended with no text. One more call, tools
           // disabled, to get the reply.
           if (!answered) {
+            // Nudge as a trailing text block on the last user turn (tool_result
+            // blocks must lead a user message; trailing text is valid), or a
+            // new user turn when the last turn is plain text.
+            const last = apiMessages[apiMessages.length - 1];
+            if (last?.role === "user" && Array.isArray(last.content)) {
+              (last.content as Anthropic.Messages.ContentBlockParam[]).push({
+                type: "text",
+                text: SAFETY_NET_NUDGE,
+              });
+            } else {
+              apiMessages.push({ role: "user", content: SAFETY_NET_NUDGE });
+            }
             const { text, apiMs, thinkingTokens } = await runRound(true);
             rounds.push({
               round: rounds.length + 1,
@@ -478,8 +528,22 @@ export async function POST(request: Request) {
             });
           }
 
-          // Persist the full reply (user message already saved above)
           const fullResponse = roundTexts.join("\n\n");
+
+          // Never a silent turn: streamed only, not persisted, not part of
+          // fullResponse, so the next request's history still carries text.
+          if (fullResponse === "") {
+            send({ t: "text", v: EMPTY_TURN_FALLBACK });
+            pushLog("error", {
+              message: "chat: turn ended with no reply text",
+              tab,
+              stop_reason: lastResponse.current?.stop_reason ?? null,
+              stop_details: stopDetailsOf(lastResponse.current),
+              rounds: rounds.length,
+            });
+          }
+
+          // Persist the full reply (user message already saved above)
           if (fullResponse !== "") {
             try {
               await supabase.from("messages").insert({
@@ -508,6 +572,7 @@ export async function POST(request: Request) {
               tools: r.tools,
               text_chars: r.text_chars,
               thinking_tokens: r.thinking_tokens,
+              ...(r.truncated ? { truncated: true } : {}),
             })),
             total_ms: Date.now() - t0,
           });

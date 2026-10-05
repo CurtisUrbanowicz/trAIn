@@ -9,9 +9,11 @@ export const REFLECT = "claude-opus-5-5";
 export const SUMMARISE = "claude-opus-5-5";
 
 // Thinking is adaptive on every call: the model decides per turn whether to
-// think. Opus 5.5 rejects "enabled"/budget_tokens. Summaries are returned so
-// thinking blocks carry readable text in turn records and logs; they are
-// never streamed to the athlete or persisted to messages.
+// think. Opus 5.5 rejects "enabled"/budget_tokens. display "summarized"
+// exists for the Coach cards (reflect streams thinking deltas as the card's
+// live text, since on Opus 5.5 the between-tool notes arrive as thinking)
+// and the planned live-thinking view. Nothing stores thinking text: it is
+// never persisted to messages or turn records, and chat never streams it.
 export const ADAPTIVE_THINKING: Anthropic.ThinkingConfigAdaptive = {
   type: "adaptive",
   display: "summarized",

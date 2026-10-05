@@ -25,6 +25,8 @@ export type TurnRound = {
   tools: number;
   text_chars?: number;
   thinking_tokens?: number | null;
+  // Cut off by max_tokens mid-tool-use; tools not executed
+  truncated?: boolean;
   // Reply text the model wrote in this round (all rounds are persisted)
   text?: string;
 };

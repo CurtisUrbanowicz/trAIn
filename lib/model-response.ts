@@ -23,6 +23,13 @@ export function thinkingTokensFromEvent(
   return thinkingTokensOf(event.usage);
 }
 
+/** stop_details is populated only on refusal; SDK 0.80.0 doesn't type it. */
+export function stopDetailsOf(
+  message: Anthropic.Messages.Message | null
+): unknown {
+  return (message as { stop_details?: unknown } | null)?.stop_details ?? null;
+}
+
 /**
  * Logs a response that stopped on the token cap or a refusal. Returns true
  * when the response is incomplete and its text must not be trusted as a
@@ -35,14 +42,11 @@ export function flagIncompleteStop(
 ): boolean {
   const reason = message.stop_reason;
   if (reason !== "max_tokens" && reason !== "refusal") return false;
-  // stop_details is populated only on refusal; SDK 0.80.0 doesn't type it
-  const stopDetails =
-    (message as { stop_details?: unknown }).stop_details ?? null;
   pushLog("error", {
     message: `${source}: stop_reason ${reason}`,
     source,
     stop_reason: reason,
-    stop_details: stopDetails,
+    stop_details: stopDetailsOf(message),
     model: message.model,
     output_tokens: message.usage.output_tokens,
     ...extra,

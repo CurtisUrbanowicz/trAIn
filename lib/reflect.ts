@@ -195,14 +195,29 @@ export async function runReflection(
           tools: reflectionTools,
         });
 
+        // On Opus 5.5 the notes between tool calls arrive as thinking
+        // blocks, not text — with display "summarized" they carry readable
+        // text, so forward them too and the Coach cards keep their live
+        // feed. One blank line after each thinking block.
+        const thinkingBlocks = new Set<number>();
         for await (const event of stream) {
           const tt = thinkingTokensFromEvent(event);
           if (tt !== null) thinkingTokens = tt;
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
+          if (event.type === "content_block_start") {
+            if (event.content_block.type === "thinking") {
+              thinkingBlocks.add(event.index);
+            }
+          } else if (event.type === "content_block_delta") {
+            if (event.delta.type === "text_delta") {
+              emit(event.delta.text);
+            } else if (event.delta.type === "thinking_delta") {
+              emit(event.delta.thinking);
+            }
+          } else if (
+            event.type === "content_block_stop" &&
+            thinkingBlocks.has(event.index)
           ) {
-            emit(event.delta.text);
+            emit("\n");
           }
         }
 
