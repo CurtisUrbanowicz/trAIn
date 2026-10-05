@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-const THINKING_DELIMITER = "\x00THINKING\x00";
-const FINAL_DELIMITER = "\x00FINAL\x00";
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
 
 function getLocalDate(): string {
@@ -27,21 +25,18 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [thinking, setThinking] = useState<string | null>(null);
+  // Code-generated line shown while a tool runs ("pulling up your runs…")
+  const [status, setStatus] = useState<string | null>(null);
   const [openerStarted, setOpenerStarted] = useState(false);
   const openerRef = useRef(false);
   const isOpenerStream = useRef(false);
 
-  const updateLastAssistant = useCallback((content: string) => {
-    if (content && isOpenerStream.current) {
-      setOpenerStarted(true);
-      window.dispatchEvent(new Event("opener-started"));
-    }
+  const appendToLastAssistant = useCallback((delta: string) => {
     setMessages((prev) => {
       const updated = [...prev];
       const last = updated[updated.length - 1];
       if (last && last.role === "assistant") {
-        updated[updated.length - 1] = { ...last, content };
+        updated[updated.length - 1] = { ...last, content: last.content + delta };
       }
       return updated;
     });
@@ -58,53 +53,60 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
 
+      // NDJSON from /api/chat, one frame per line:
+      //   {"t":"text","v"}   reply text — appended to the bubble
+      //   {"t":"status","v"} tool status line — shown in the dimmed slot
+      //   {"t":"done"}        end of turn
+      // Chunks can split mid-line, so lines are buffered.
       const decoder = new TextDecoder();
-      let fullText = "";
+      let buffer = "";
+      let sawText = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fullText += decoder.decode(value, { stream: true });
-
-        const thinkIdx = fullText.indexOf(THINKING_DELIMITER);
-        const finalIdx = fullText.indexOf(FINAL_DELIMITER);
-
-        if (finalIdx !== -1) {
-          // Final mode — clear thinking, stream final text into message
-          setThinking(null);
-          updateLastAssistant(
-            fullText.slice(finalIdx + FINAL_DELIMITER.length).trimStart()
-          );
-        } else if (thinkIdx !== -1) {
-          // Thinking mode — combine text before and after THINKING delimiter
-          const before = fullText.slice(0, thinkIdx);
-          const after = fullText.slice(
-            thinkIdx + THINKING_DELIMITER.length
-          );
-          setThinking(before + after);
-          updateLastAssistant("");
-        } else {
-          // Normal mode — no delimiters, stream into message
-          updateLastAssistant(fullText);
+      const handleLine = (line: string) => {
+        if (!line.trim()) return;
+        let frame: { t?: string; v?: unknown };
+        try {
+          frame = JSON.parse(line);
+        } catch {
+          console.error("[useChat] bad stream frame:", line);
+          return;
         }
-      }
+        if (frame.t === "text" && typeof frame.v === "string") {
+          if (!sawText) {
+            sawText = true;
+            if (isOpenerStream.current) {
+              setOpenerStarted(true);
+              window.dispatchEvent(new Event("opener-started"));
+            }
+          }
+          // Text after a tool call means the tool is done
+          setStatus(null);
+          appendToLastAssistant(frame.v);
+        } else if (frame.t === "status" && typeof frame.v === "string") {
+          setStatus(frame.v);
+        } else if (frame.t === "done") {
+          setStatus(null);
+        }
+      };
 
-      // Edge case: THINKING sent but FINAL never arrived
-      if (
-        fullText.indexOf(THINKING_DELIMITER) !== -1 &&
-        fullText.indexOf(FINAL_DELIMITER) === -1
-      ) {
-        setThinking(null);
-        const ti = fullText.indexOf(THINKING_DELIMITER);
-        updateLastAssistant(
-          (
-            fullText.slice(0, ti) +
-            fullText.slice(ti + THINKING_DELIMITER.length)
-          ).trimStart()
-        );
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) !== -1) {
+            handleLine(buffer.slice(0, nl));
+            buffer = buffer.slice(nl + 1);
+          }
+        }
+        buffer += decoder.decode();
+        if (buffer) handleLine(buffer);
+      } finally {
+        setStatus(null);
       }
     },
-    [updateLastAssistant]
+    [appendToLastAssistant]
   );
 
   // Auto-opener — hydrate from Supabase first, waits for enabled
@@ -167,7 +169,7 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
         isOpenerStream.current = false;
         setOpenerStarted(true);
         window.dispatchEvent(new Event("opener-started"));
-        setThinking(null);
+        setStatus(null);
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.role === "assistant" && !last.content) {
@@ -210,7 +212,7 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
       if (!response.ok) throw new Error(`API error: ${response.status}`);
       await processStream(response);
     } catch (err) {
-      setThinking(null);
+      setStatus(null);
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last && last.role === "assistant" && !last.content) {
@@ -224,5 +226,5 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
     }
   }, [input, loading, messages, tab, processStream]);
 
-  return { messages, input, setInput, sendMessage, loading, thinking, openerStarted };
+  return { messages, input, setInput, sendMessage, loading, status, openerStarted };
 }

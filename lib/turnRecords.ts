@@ -23,7 +23,8 @@ export type TurnRound = {
   api_ms: number;
   tools_ms: number;
   tools: number;
-  // Visible text the model emitted alongside tool_use blocks in this round
+  text_chars?: number;
+  // Reply text the model wrote in this round (all rounds are persisted)
   text?: string;
 };
 

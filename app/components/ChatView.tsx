@@ -17,7 +17,7 @@ export default function ChatView({
   enabled = true,
   autoOpen = true,
 }: ChatViewProps) {
-  const { messages, input, setInput, sendMessage, loading, thinking } =
+  const { messages, input, setInput, sendMessage, loading, status } =
     useChat(tab, enabled, autoOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -27,7 +27,7 @@ export default function ChatView({
       top: scrollRef.current.scrollHeight,
       behavior: "instant",
     });
-  }, [messages, thinking]);
+  }, [messages, status]);
 
   // Keep the latest messages in view when the iOS keyboard opens/closes —
   // the visual viewport resize shrinks the list, so re-pin to the bottom
@@ -73,8 +73,8 @@ export default function ChatView({
   }, [input]);
 
   const lastMsg = messages[messages.length - 1];
-  const isStreaming =
-    loading && !thinking && lastMsg?.role === "assistant";
+  // The partial reply stays visible (dimmed) while a status line shows
+  const isStreaming = loading && lastMsg?.role === "assistant";
   const hasInput = input.trim().length > 0;
 
   return (
@@ -98,7 +98,6 @@ export default function ChatView({
           const isUser = msg.role === "user";
           const isLastStreaming = isStreaming && i === messages.length - 1;
 
-          if (msg.role === "assistant" && !msg.content && thinking) return null;
           if (!msg.content) return null;
 
           return (
@@ -136,7 +135,7 @@ export default function ChatView({
           );
         })}
 
-        {thinking && (
+        {status && (
           <div style={{ marginTop: 10 }} className="flex justify-start">
             <div
               style={{
@@ -154,7 +153,7 @@ export default function ChatView({
               }}
             >
               <p className="whitespace-pre-wrap break-words italic">
-                {thinking}
+                {status}
               </p>
             </div>
           </div>

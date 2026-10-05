@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
+import { describeToolCall } from "@/lib/tool-status";
 import {
   insertTurnRecord,
   type TurnToolCall,
@@ -27,12 +28,15 @@ const MAX_TOOL_ITERATIONS: Record<TabType, number> = {
   season: 10,
   coach: 10,
 };
-const THINKING_DELIMITER = "\x00THINKING\x00";
-const FINAL_DELIMITER = "\x00FINAL\x00";
-
-// Extended thinking — per tab; today stays off for latency.
-const THINKING_TABS = new Set<TabType>(["week", "season", "coach"]);
-const THINKING_BUDGET_TOKENS = 2048;
+// Extended thinking on every tab. Reasoning belongs in thinking, never in
+// text — all text is the reply and is persisted. Today gets the smaller
+// budget for latency.
+const THINKING_BUDGET_TOKENS: Record<TabType, number> = {
+  today: 1024,
+  week: 2048,
+  season: 2048,
+  coach: 2048,
+};
 
 const TAB_VALUES = new Set<TabType>([
   "coach",
@@ -194,21 +198,22 @@ export async function POST(request: Request) {
     // Decided once per request and applied to every call in the tool loop —
     // never toggled mid-loop, so thinking blocks in earlier assistant turns
     // stay valid for subsequent calls.
-    const thinking: Anthropic.ThinkingConfigParam | undefined =
-      THINKING_TABS.has(tab)
-        ? { type: "enabled", budget_tokens: THINKING_BUDGET_TOKENS }
-        : undefined;
+    const thinking: Anthropic.ThinkingConfigParam = {
+      type: "enabled",
+      budget_tokens: THINKING_BUDGET_TOKENS[tab],
+    };
 
     const readable = new ReadableStream({
       async start(controller) {
         // Request timing — one "timing" entry pushed at the end.
-        // first_token_ms = first byte enqueued to the client, whatever it is.
+        // first_token_ms = first frame enqueued to the client, whatever it is.
         let firstTokenMs: number | null = null;
         const rounds: Array<{
           round: number;
           api_ms: number;
           tools_ms: number;
           tools: number;
+          text_chars: number;
           text?: string;
         }> = [];
 
@@ -225,12 +230,6 @@ export async function POST(request: Request) {
             cache_write: usage.cache_creation_input_tokens ?? 0,
           });
         };
-        const roundText = (blocks: Anthropic.Messages.Message["content"]) =>
-          blocks
-            .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-            .map((b) => b.text)
-            .join("")
-            .trim() || undefined;
         const runTools = (
           round: number,
           toolUses: Anthropic.Messages.ToolUseBlock[]
@@ -291,225 +290,189 @@ export async function POST(request: Request) {
             })
           );
         };
-        const enqueue = (chunk: Uint8Array) => {
-          if (firstTokenMs === null) firstTokenMs = Date.now() - t0;
-          controller.enqueue(chunk);
-        };
-        try {
-          // fullResponse: only the final coaching text, persisted to DB
-          let fullResponse = "";
 
-          // Atomic final emission: the FINAL delimiter and its text are
-          // always enqueued together, or neither. A zero-text response
-          // cannot leak a naked delimiter to the client.
-          const emitFinalTurn = (
-            blocks: Anthropic.Messages.Message["content"]
-          ): boolean => {
-            let text = "";
-            for (const block of blocks) {
-              if (block.type === "text") {
-                text += block.text;
-              }
+        // NDJSON protocol: one JSON object per line.
+        //   {"t":"text","v":"…"}    model reply text, every round, as it streams
+        //   {"t":"status","v":"…"}  code-generated line per tool call
+        //   {"t":"done"}            end of turn
+        const encoder = new TextEncoder();
+        const send = (
+          frame: { t: "text" | "status"; v: string } | { t: "done" }
+        ) => {
+          if (firstTokenMs === null) firstTokenMs = Date.now() - t0;
+          controller.enqueue(encoder.encode(JSON.stringify(frame) + "\n"));
+        };
+
+        // Every round's text is the reply and is persisted. Each round's
+        // text is trimmed and non-empty rounds are joined with "\n\n" —
+        // the text frames are emitted so the client's concatenation is
+        // exactly that join, i.e. the bubble equals the persisted row.
+        const roundTexts: string[] = [];
+
+        // One streaming call. Used for every round: tool rounds and the
+        // safety net (toolChoiceNone) alike.
+        const runRound = async (
+          toolChoiceNone: boolean
+        ): Promise<{ response: Anthropic.Messages.Message; text: string; apiMs: number }> => {
+          const apiStart = Date.now();
+          let text = "";
+          let pendingWs = "";
+          let started = false;
+
+          // Trims the round on the fly: leading whitespace is dropped,
+          // trailing whitespace is held back until more text follows it.
+          const emitText = (delta: string) => {
+            let chunk = pendingWs + delta;
+            if (!started) chunk = chunk.trimStart();
+            const body = chunk.trimEnd();
+            pendingWs = chunk.slice(body.length);
+            if (!body) return;
+            let out = body;
+            if (!started) {
+              started = true;
+              if (roundTexts.length > 0) out = "\n\n" + body;
             }
-            text = text.trimStart();
-            if (!text) return false;
-            enqueue(new TextEncoder().encode(FINAL_DELIMITER));
-            enqueue(new TextEncoder().encode(text));
-            fullResponse += text;
-            return true;
+            text += body;
+            send({ t: "text", v: out });
           };
 
-          // ── Initial call: stream to client ──────────────────────
-          // Text deltas pipe directly to the frontend. If the model
-          // triggers tool use we detect it here and drop into the
-          // non-streaming create() loop below.
-          let hasToolUse = false;
-          let streamedText = "";
-          let sawNonWhitespace = false;
-
-          const initialApiStart = Date.now();
-          const initialFinalMsg = await createMessage(async (model) => {
+          const response = await createMessage(async (model) => {
             // Reset on retry — overloaded errors fire before any tokens
-            // stream, so we should be re-entering with a clean slate.
-            streamedText = "";
-            hasToolUse = false;
-            sawNonWhitespace = false;
+            // stream, so we re-enter with a clean slate.
+            text = "";
+            pendingWs = "";
+            started = false;
+            // tool_use input arrives as JSON deltas; assembled per block so
+            // the status line can read it when the block closes.
+            const toolInputs = new Map<number, { name: string; json: string }>();
 
             const stream = anthropic.messages.stream({
               model,
               max_tokens: 10000,
-              ...(thinking ? { thinking } : {}),
+              thinking,
               system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
               messages: apiMessages,
               tools: toolsForRequest,
+              ...(toolChoiceNone ? { tool_choice: { type: "none" as const } } : {}),
             });
 
             for await (const event of stream) {
-              if (
-                event.type === "content_block_delta" &&
-                event.delta.type === "text_delta"
-              ) {
-                streamedText += event.delta.text;
-                if (!sawNonWhitespace) {
-                  const trimmed = event.delta.text.trimStart();
-                  if (trimmed === "") continue;
-                  enqueue(new TextEncoder().encode(trimmed));
-                  sawNonWhitespace = true;
-                } else {
-                  enqueue(new TextEncoder().encode(event.delta.text));
+              if (event.type === "content_block_start") {
+                if (event.content_block.type === "tool_use") {
+                  toolInputs.set(event.index, {
+                    name: event.content_block.name,
+                    json: "",
+                  });
                 }
-              }
-              if (
-                event.type === "content_block_start" &&
-                event.content_block.type === "tool_use"
-              ) {
-                hasToolUse = true;
+              } else if (event.type === "content_block_delta") {
+                if (event.delta.type === "text_delta") {
+                  emitText(event.delta.text);
+                } else if (event.delta.type === "input_json_delta") {
+                  const t = toolInputs.get(event.index);
+                  if (t) t.json += event.delta.partial_json;
+                }
+              } else if (event.type === "content_block_stop") {
+                const t = toolInputs.get(event.index);
+                if (t) {
+                  let input: Record<string, unknown> = {};
+                  try {
+                    input = t.json ? JSON.parse(t.json) : {};
+                  } catch {
+                    // Status line falls back to the tool's default
+                  }
+                  send({ t: "status", v: describeToolCall(t.name, input) });
+                }
               }
             }
 
             return await stream.finalMessage();
           });
-          const initialApiMs = Date.now() - initialApiStart;
-          recordUsage(initialFinalMsg.usage);
 
-          pushLog("cache_usage", {
-            input_tokens: initialFinalMsg.usage.input_tokens,
-            // SDK 0.80.0 has no separate thinking-token field — thinking
-            // tokens are counted inside output_tokens.
-            output_tokens: initialFinalMsg.usage.output_tokens,
-            thinking_enabled: thinking !== undefined,
-            cache_write: initialFinalMsg.usage.cache_creation_input_tokens,
-            cache_read: initialFinalMsg.usage.cache_read_input_tokens,
-          });
+          recordUsage(response.usage);
+          if (text) roundTexts.push(text);
+          return { response, text, apiMs: Date.now() - apiStart };
+        };
 
-          if (!hasToolUse) {
-            // No tools — streamed text is the final response
-            rounds.push({ round: 1, api_ms: initialApiMs, tools_ms: 0, tools: 0 });
-            fullResponse = streamedText;
-          } else {
-            // ── Tool-use loop (non-streaming) ────────────────────
-            enqueue(new TextEncoder().encode(THINKING_DELIMITER));
+        try {
+          // answered: the last round ended without tool calls and wrote text
+          let answered = false;
 
-            // Append the assistant turn (text + tool_use blocks)
-            apiMessages.push({
-              role: "assistant" as const,
-              content:
-                initialFinalMsg.content as Anthropic.Messages.ContentBlockParam[],
-            });
+          for (let round = 1; round <= MAX_TOOL_ITERATIONS[tab]; round++) {
+            const { response, text, apiMs } = await runRound(false);
 
-            // Execute the tool calls from the initial response in parallel
-            const initialToolsStart = Date.now();
-            const initialToolUses = initialFinalMsg.content.filter(
-              (b): b is Anthropic.Messages.ToolUseBlock =>
-                b.type === "tool_use"
-            );
-            const initialToolResults = await runTools(1, initialToolUses);
-            rounds.push({
-              round: 1,
-              text: roundText(initialFinalMsg.content),
-              api_ms: initialApiMs,
-              tools_ms: Date.now() - initialToolsStart,
-              tools: initialToolResults.length,
-            });
-            appendToolResultsWithCache(apiMessages, initialToolResults);
-
-            // Subsequent iterations use create() — no streaming
-            for (let i = 1; i < MAX_TOOL_ITERATIONS[tab]; i++) {
-              const apiStart = Date.now();
-              const response = await createMessage((model) =>
-                anthropic.messages.create({
-                  model,
-                  max_tokens: 10000,
-                  ...(thinking ? { thinking } : {}),
-                  system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
-                  messages: apiMessages,
-                  tools: toolsForRequest,
-                })
-              );
-              const apiMs = Date.now() - apiStart;
-              recordUsage(response.usage);
-              const roundNo = rounds.length + 1;
-
-              const hasMoreTools = response.content.some(
-                (b) => b.type === "tool_use"
-              );
-
-              if (!hasMoreTools) {
-                // Final response — emit atomically. If the model returned
-                // no text, fullResponse stays empty and the safety net
-                // below will make one more call.
-                rounds.push({ round: roundNo, api_ms: apiMs, tools_ms: 0, tools: 0 });
-                emitFinalTurn(response.content);
-                break;
-              }
-
-              // Intermediate response with text + tool_use:
-              // stream text to client (visible) but don't persist
-              for (const block of response.content) {
-                if (block.type === "text" && block.text) {
-                  enqueue(new TextEncoder().encode(block.text));
-                }
-              }
-
-              apiMessages.push({
-                role: "assistant" as const,
-                content:
-                  response.content as Anthropic.Messages.ContentBlockParam[],
+            if (round === 1) {
+              pushLog("cache_usage", {
+                input_tokens: response.usage.input_tokens,
+                // SDK 0.80.0 has no separate thinking-token field — thinking
+                // tokens are counted inside output_tokens.
+                output_tokens: response.usage.output_tokens,
+                thinking_enabled: true,
+                cache_write: response.usage.cache_creation_input_tokens,
+                cache_read: response.usage.cache_read_input_tokens,
               });
-
-              const loopToolsStart = Date.now();
-              const loopToolUses = response.content.filter(
-                (b): b is Anthropic.Messages.ToolUseBlock =>
-                  b.type === "tool_use"
-              );
-              const loopToolResults = await runTools(roundNo, loopToolUses);
-              rounds.push({
-                round: roundNo,
-                text: roundText(response.content),
-                api_ms: apiMs,
-                tools_ms: Date.now() - loopToolsStart,
-                tools: loopToolResults.length,
-              });
-              appendToolResultsWithCache(apiMessages, loopToolResults);
             }
 
-            // Safety net: fullResponse === "" means emitFinalTurn never
-            // succeeded — either the loop exhausted without reaching
-            // !hasMoreTools, or it reached it but the model returned no
-            // text. One more call to get the answer.
-            if (fullResponse === "") {
-              const finalApiStart = Date.now();
-              const finalResponse = await createMessage((model) =>
-                anthropic.messages.create({
-                  model,
-                  max_tokens: 10000,
-                  ...(thinking ? { thinking } : {}),
-                  system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }],
-                  messages: apiMessages,
-                  tools: toolsForRequest,
-                })
-              );
-              recordUsage(finalResponse.usage);
+            const toolUses = response.content.filter(
+              (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
+            );
+
+            if (toolUses.length === 0) {
               rounds.push({
-                round: rounds.length + 1,
-                api_ms: Date.now() - finalApiStart,
+                round,
+                api_ms: apiMs,
                 tools_ms: 0,
                 tools: 0,
+                text_chars: text.length,
+                ...(text ? { text } : {}),
               });
-              emitFinalTurn(finalResponse.content);
+              answered = text !== "";
+              break;
             }
+
+            // Append the assistant turn (thinking + text + tool_use blocks)
+            apiMessages.push({
+              role: "assistant" as const,
+              content: response.content as Anthropic.Messages.ContentBlockParam[],
+            });
+
+            const toolsStart = Date.now();
+            const toolResults = await runTools(round, toolUses);
+            rounds.push({
+              round,
+              api_ms: apiMs,
+              tools_ms: Date.now() - toolsStart,
+              tools: toolResults.length,
+              text_chars: text.length,
+              ...(text ? { text } : {}),
+            });
+            appendToolResultsWithCache(apiMessages, toolResults);
           }
 
-          // Persist assistant response (user message already saved above)
-          const persistedResponse = fullResponse.trimStart();
-          if (persistedResponse.trim() !== "") {
+          // Safety net: the loop hit its cap with tool results unanswered,
+          // or the last round ended with no text. One more call, tools
+          // disabled, to get the reply.
+          if (!answered) {
+            const { text, apiMs } = await runRound(true);
+            rounds.push({
+              round: rounds.length + 1,
+              api_ms: apiMs,
+              tools_ms: 0,
+              tools: 0,
+              text_chars: text.length,
+              ...(text ? { text } : {}),
+            });
+          }
+
+          // Persist the full reply (user message already saved above)
+          const fullResponse = roundTexts.join("\n\n");
+          if (fullResponse !== "") {
             try {
               await supabase.from("messages").insert({
                 athlete_id: ATHLETE_ID,
                 date: localDate,
                 tab,
                 role: "assistant",
-                content: persistedResponse,
+                content: fullResponse,
                 timestamp: new Date().toISOString(),
               });
             } catch (saveError) {
@@ -522,12 +485,20 @@ export async function POST(request: Request) {
             context_ms: contextMs,
             first_token_ms: firstTokenMs,
             tool_rounds: rounds.filter((r) => r.tools > 0).length,
-            rounds,
+            // Round text lives in the turn record; the debug log gets counts
+            rounds: rounds.map((r) => ({
+              round: r.round,
+              api_ms: r.api_ms,
+              tools_ms: r.tools_ms,
+              tools: r.tools,
+              text_chars: r.text_chars,
+            })),
             total_ms: Date.now() - t0,
           });
 
+          send({ t: "done" });
           controller.close();
-          saveTurnRecord(persistedResponse || null);
+          saveTurnRecord(fullResponse || null);
         } catch (streamErr) {
           const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
           pushLog("error", { message: errMsg, total_ms: Date.now() - t0 });
@@ -539,7 +510,7 @@ export async function POST(request: Request) {
     });
 
     return new Response(readable, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
     });
   } catch (error) {
     const message =
