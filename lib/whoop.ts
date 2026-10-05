@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, timingSafeEqual } from "crypto";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getServiceClient } from "./supabase-service";
 import { supabase } from "./supabase";
 
 /**
@@ -21,25 +21,8 @@ const WHOOP_API_BASE = "https://api.prod.whoop.com/developer";
 export const WHOOP_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth";
 export const WHOOP_SCOPES = "read:recovery read:sleep read:cycles offline";
 
-// ── Service-role client — wearable_tokens is RLS deny-all, so only this
-// client (never the browser's anon key) can touch it. Null when the env
-// var isn't set (e.g. local dev), in which case token ops no-op.
-// SUPABASE_SERVICE_ROLE_KEY is a new-format sb_secret_… key: supabase-js
-// passes it through as the apikey header and the gateway maps it to
-// service role (RLS bypass) — no JWT involved.
-let serviceClient: SupabaseClient | null = null;
-function getServiceClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  if (!serviceClient) {
-    serviceClient = createClient(url, key, {
-      // Server-side key client: no user sessions, ever
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-  return serviceClient;
-}
+// Service-role client lives in lib/supabase-service.ts (wearable_tokens is
+// RLS deny-all; only that client can touch it).
 
 // ── Token lifecycle ─────────────────────────────────────────────
 

@@ -191,10 +191,11 @@ export async function getTodaysReadiness(
   rhr: number | null;
   recovery_score: number | null;
   sleep_hours: number | null;
+  source: "manual" | "whoop";
 } | null> {
   const { data, error } = await supabase
     .from("readiness")
-    .select("hrv, rhr, recovery_score, sleep_hours")
+    .select("hrv, rhr, recovery_score, sleep_hours, source")
     .eq("athlete_id", athleteId)
     .eq("date", localDate)
     .order("timestamp", { ascending: false })
@@ -207,6 +208,8 @@ export async function getTodaysReadiness(
     rhr: data.rhr,
     recovery_score: data.recovery_score,
     sleep_hours: data.sleep_hours,
+    // readiness.source: "whoop" for synced rows, null for manual logs
+    source: data.source === "whoop" ? "whoop" : "manual",
   };
 }
 
@@ -478,6 +481,7 @@ export function formatContext(
     const r = data.readiness;
     volatile.push(
       `<readiness>\n${[
+        `Stored: yes (source: ${r.source})`,
         `HRV: ${formatMetric(r.hrv)}`,
         `RHR: ${formatMetric(r.rhr)}`,
         `Recovery: ${formatMetric(r.recovery_score)}`,

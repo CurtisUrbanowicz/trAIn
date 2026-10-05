@@ -52,10 +52,6 @@ export async function getExistingInsight(
   return (data as InsightRow | null) ?? null;
 }
 
-function truncate(value: string, max: number): string {
-  return value.length > max ? value.slice(0, max) + "…" : value;
-}
-
 function summariseToolInput(name: string, input: Record<string, unknown>): string {
   if (name === "get_history") {
     const parts: string[] = [];
@@ -242,14 +238,7 @@ export async function runReflection(
 
       const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
       toolUses.forEach((block, idx) => {
-        const input = block.input as Record<string, unknown>;
         const result = results[idx]!;
-
-        pushLog("tool_call", {
-          name: block.name,
-          input: truncate(JSON.stringify(input), 200),
-          result: truncate(result, 200),
-        });
 
         if (block.name === "log_insight" && !result.startsWith("Error")) {
           insightLogged = true;

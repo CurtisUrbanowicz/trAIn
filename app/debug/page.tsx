@@ -84,6 +84,9 @@ export default function DebugPage() {
           <h1 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
             Debug Log ({entries.length})
           </h1>
+          <a href="/debug/turns" style={{ fontSize: 11, color: "var(--accent)" }}>
+            Turn records →
+          </a>
           <div style={{ fontSize: 11, color: "#14b8a6", marginTop: 2 }}>
             Last Whoop sync:{" "}
             {(() => {

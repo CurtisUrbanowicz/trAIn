@@ -1,10 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { buildContext, type TabType } from "@/lib/context";
 import { supabase } from "@/lib/supabase";
 import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
+import {
+  insertTurnRecord,
+  type TurnToolCall,
+  type TurnUsageRound,
+} from "@/lib/turnRecords";
 import { CHAT_PRIMARY, CHAT_FALLBACK } from "@/lib/models";
 import {
   appendToolResultsWithCache,
@@ -198,8 +204,93 @@ export async function POST(request: Request) {
         // Request timing — one "timing" entry pushed at the end.
         // first_token_ms = first byte enqueued to the client, whatever it is.
         let firstTokenMs: number | null = null;
-        const rounds: Array<{ api_ms: number; tools_ms: number; tools: number }> =
-          [];
+        const rounds: Array<{
+          round: number;
+          api_ms: number;
+          tools_ms: number;
+          tools: number;
+          text?: string;
+        }> = [];
+
+        // Turn record (turn_records): assembled from what's already in
+        // memory and inserted after the stream closes. No thinking text.
+        const turnToolCalls: TurnToolCall[] = [];
+        const usageRounds: TurnUsageRound[] = [];
+        const recordUsage = (usage: Anthropic.Messages.Usage) => {
+          usageRounds.push({
+            round: usageRounds.length + 1,
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_read: usage.cache_read_input_tokens ?? 0,
+            cache_write: usage.cache_creation_input_tokens ?? 0,
+          });
+        };
+        const roundText = (blocks: Anthropic.Messages.Message["content"]) =>
+          blocks
+            .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
+            .map((b) => b.text)
+            .join("")
+            .trim() || undefined;
+        const runTools = (
+          round: number,
+          toolUses: Anthropic.Messages.ToolUseBlock[]
+        ): Promise<Anthropic.Messages.ToolResultBlockParam[]> =>
+          // Parallel; map preserves result order against block order, and
+          // safeExecuteTool never rejects.
+          Promise.all(
+            toolUses.map(async (block, idx) => {
+              const result = await safeExecuteTool(
+                block.name,
+                block.input as Record<string, unknown>,
+                toolContext
+              );
+              turnToolCalls.push({
+                round,
+                index: idx,
+                name: block.name,
+                input: block.input,
+                result,
+              });
+              return {
+                type: "tool_result" as const,
+                tool_use_id: block.id,
+                content: result,
+              };
+            })
+          );
+        const saveTurnRecord = (finalMessage: string | null, error?: string) => {
+          // Tool calls finish in parallel; restore block order.
+          turnToolCalls.sort((a, b) => a.round - b.round || a.index - b.index);
+          const sum = (k: keyof Omit<TurnUsageRound, "round">) =>
+            usageRounds.reduce((acc, r) => acc + r[k], 0);
+          waitUntil(
+            insertTurnRecord({
+              athlete_id: ATHLETE_ID,
+              tab,
+              date: localDate,
+              user_message: message,
+              context_block: volatileBlock,
+              tool_calls: turnToolCalls,
+              final_message: finalMessage,
+              model: currentModel,
+              timing: {
+                context_ms: contextMs,
+                first_token_ms: firstTokenMs,
+                tool_rounds: rounds.filter((r) => r.tools > 0).length,
+                rounds,
+                total_ms: Date.now() - t0,
+                ...(error ? { error } : {}),
+              },
+              usage: {
+                input_tokens: sum("input_tokens"),
+                output_tokens: sum("output_tokens"),
+                cache_read: sum("cache_read"),
+                cache_write: sum("cache_write"),
+                rounds: usageRounds,
+              },
+            })
+          );
+        };
         const enqueue = (chunk: Uint8Array) => {
           if (firstTokenMs === null) firstTokenMs = Date.now() - t0;
           controller.enqueue(chunk);
@@ -279,6 +370,7 @@ export async function POST(request: Request) {
             return await stream.finalMessage();
           });
           const initialApiMs = Date.now() - initialApiStart;
+          recordUsage(initialFinalMsg.usage);
 
           pushLog("cache_usage", {
             input_tokens: initialFinalMsg.usage.input_tokens,
@@ -292,7 +384,7 @@ export async function POST(request: Request) {
 
           if (!hasToolUse) {
             // No tools — streamed text is the final response
-            rounds.push({ api_ms: initialApiMs, tools_ms: 0, tools: 0 });
+            rounds.push({ round: 1, api_ms: initialApiMs, tools_ms: 0, tools: 0 });
             fullResponse = streamedText;
           } else {
             // ── Tool-use loop (non-streaming) ────────────────────
@@ -305,27 +397,16 @@ export async function POST(request: Request) {
                 initialFinalMsg.content as Anthropic.Messages.ContentBlockParam[],
             });
 
-            // Execute the tool calls from the initial response — in
-            // parallel; map preserves result order against block order,
-            // and safeExecuteTool never rejects.
+            // Execute the tool calls from the initial response in parallel
             const initialToolsStart = Date.now();
             const initialToolUses = initialFinalMsg.content.filter(
               (b): b is Anthropic.Messages.ToolUseBlock =>
                 b.type === "tool_use"
             );
-            const initialToolResults: Anthropic.Messages.ToolResultBlockParam[] =
-              await Promise.all(
-                initialToolUses.map(async (block) => ({
-                  type: "tool_result" as const,
-                  tool_use_id: block.id,
-                  content: await safeExecuteTool(
-                    block.name,
-                    block.input as Record<string, unknown>,
-                    toolContext
-                  ),
-                }))
-              );
+            const initialToolResults = await runTools(1, initialToolUses);
             rounds.push({
+              round: 1,
+              text: roundText(initialFinalMsg.content),
               api_ms: initialApiMs,
               tools_ms: Date.now() - initialToolsStart,
               tools: initialToolResults.length,
@@ -346,6 +427,8 @@ export async function POST(request: Request) {
                 })
               );
               const apiMs = Date.now() - apiStart;
+              recordUsage(response.usage);
+              const roundNo = rounds.length + 1;
 
               const hasMoreTools = response.content.some(
                 (b) => b.type === "tool_use"
@@ -355,7 +438,7 @@ export async function POST(request: Request) {
                 // Final response — emit atomically. If the model returned
                 // no text, fullResponse stays empty and the safety net
                 // below will make one more call.
-                rounds.push({ api_ms: apiMs, tools_ms: 0, tools: 0 });
+                rounds.push({ round: roundNo, api_ms: apiMs, tools_ms: 0, tools: 0 });
                 emitFinalTurn(response.content);
                 break;
               }
@@ -379,19 +462,10 @@ export async function POST(request: Request) {
                 (b): b is Anthropic.Messages.ToolUseBlock =>
                   b.type === "tool_use"
               );
-              const loopToolResults: Anthropic.Messages.ToolResultBlockParam[] =
-                await Promise.all(
-                  loopToolUses.map(async (block) => ({
-                    type: "tool_result" as const,
-                    tool_use_id: block.id,
-                    content: await safeExecuteTool(
-                      block.name,
-                      block.input as Record<string, unknown>,
-                      toolContext
-                    ),
-                  }))
-                );
+              const loopToolResults = await runTools(roundNo, loopToolUses);
               rounds.push({
+                round: roundNo,
+                text: roundText(response.content),
                 api_ms: apiMs,
                 tools_ms: Date.now() - loopToolsStart,
                 tools: loopToolResults.length,
@@ -415,7 +489,9 @@ export async function POST(request: Request) {
                   tools: toolsForRequest,
                 })
               );
+              recordUsage(finalResponse.usage);
               rounds.push({
+                round: rounds.length + 1,
                 api_ms: Date.now() - finalApiStart,
                 tools_ms: 0,
                 tools: 0,
@@ -451,9 +527,11 @@ export async function POST(request: Request) {
           });
 
           controller.close();
+          saveTurnRecord(persistedResponse || null);
         } catch (streamErr) {
           const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
           pushLog("error", { message: errMsg, total_ms: Date.now() - t0 });
+          saveTurnRecord(null, errMsg);
           console.error("[chat] streaming failed:", streamErr);
           controller.error(streamErr);
         }
