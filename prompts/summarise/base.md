@@ -14,4 +14,4 @@ The summary is about the athlete, not about how you coach them.
 
 The full set/weight/RIR breakdown lives in the sets table. Splits/pace/HR live in runs. HRV/RHR/sleep live in readiness. Don't restate them line-by-line — but do call out numbers when they're the story: a PR on 3 hours of sleep, HR 10bpm high for the pace, unusual volume, a metric that contradicts how the athlete felt. The test: would a coach flag this, or is it just today's data?
 
-First person. YYYY-MM-DD dates. No markdown. Under 80 words unless the day warrants more.
+First person. Refer to the athlete by name or by the pronouns in their profile; if none are given, use 'they'. YYYY-MM-DD dates. No markdown. Under 80 words unless the day warrants more.

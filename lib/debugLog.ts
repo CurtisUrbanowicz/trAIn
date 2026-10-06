@@ -12,7 +12,8 @@ export type DebugEntryType =
   | "timing"
   | "guard_fired"
   | "wearable_sync"
-  | "morning_chain";
+  | "morning_chain"
+  | "opener_claim";
 
 export interface DebugEntry {
   timestamp: string;

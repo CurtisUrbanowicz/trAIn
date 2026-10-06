@@ -27,65 +27,75 @@ interface Readiness {
 export default function TodayPage() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
-  const [ready, setReady] = useState(false);
+  // The loading screen clears once both of today's fetches have settled —
+  // never on the opener, which can take 30s+ on Opus 5.5 and arrives
+  // behind typing dots instead
+  const [planLoaded, setPlanLoaded] = useState(false);
+  const [readinessLoaded, setReadinessLoaded] = useState(false);
   const [summariesReady, setSummariesReady] = useState(false);
 
   // Fetch today's plan
-  const fetchPlan = () => {
+  const fetchPlan = async () => {
     const localDate = getLocalDate();
-    supabase
-      .from("plans")
-      .select("session_type, exercises, notes")
-      .eq("athlete_id", ATHLETE_ID)
-      .eq("date", localDate)
-      .order("timestamp", { ascending: false })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          const raw = data[0];
-          setPlan({
-            session_type: raw.session_type,
-            exercises: raw.exercises,
-            notes: raw.notes,
-          });
-        }
-      });
+    try {
+      const { data } = await supabase
+        .from("plans")
+        .select("session_type, exercises, notes")
+        .eq("athlete_id", ATHLETE_ID)
+        .eq("date", localDate)
+        .order("timestamp", { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        const raw = data[0];
+        setPlan({
+          session_type: raw.session_type,
+          exercises: raw.exercises,
+          notes: raw.notes,
+        });
+      }
+    } finally {
+      setPlanLoaded(true);
+    }
   };
 
   // Fetch today's readiness
-  const fetchReadiness = () => {
+  const fetchReadiness = async () => {
     const localDate = getLocalDate();
-    supabase
-      .from("readiness")
-      .select("recovery_score, hrv, rhr, sleep_hours")
-      .eq("athlete_id", ATHLETE_ID)
-      .eq("date", localDate)
-      .order("timestamp", { ascending: false })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          const r = data[0];
-          setReadiness({
-            recovery_score: r.recovery_score,
-            hrv: r.hrv,
-            rhr: r.rhr,
-            sleep_hours: r.sleep_hours,
-          });
-        } else {
-          setReadiness(null);
-        }
-      });
+    try {
+      const { data } = await supabase
+        .from("readiness")
+        .select("recovery_score, hrv, rhr, sleep_hours")
+        .eq("athlete_id", ATHLETE_ID)
+        .eq("date", localDate)
+        .order("timestamp", { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        const r = data[0];
+        setReadiness({
+          recovery_score: r.recovery_score,
+          hrv: r.hrv,
+          rhr: r.rhr,
+          sleep_hours: r.sleep_hours,
+        });
+      } else {
+        setReadiness(null);
+      }
+    } finally {
+      setReadinessLoaded(true);
+    }
   };
 
   useEffect(() => {
-    fetchPlan();
-    fetchReadiness();
+    void fetchPlan();
+    void fetchReadiness();
   }, []);
 
   useRealtimeInsert("today-plan", "plans", fetchPlan, `athlete_id=eq.${ATHLETE_ID}`);
   useRealtimeInsert("today-readiness", "readiness", fetchReadiness, `athlete_id=eq.${ATHLETE_ID}`);
 
-  // Generate summaries for unsummarised dates, then enable the opener
+  // Generate summaries for unsummarised dates, then release the opener.
+  // Only the opener request waits on this — it reads yesterday's summary.
+  // Saved messages and the opener's dots show without it.
   useEffect(() => {
     const localDate = getLocalDate();
 
@@ -112,17 +122,10 @@ export default function TodayPage() {
       });
   }, []);
 
-  // Listen for opener-started event from useChat
-  useEffect(() => {
-    const handler = () => setReady(true);
-    window.addEventListener("opener-started", handler);
-    return () => window.removeEventListener("opener-started", handler);
-  }, []);
-
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <LoadingScreen ready={ready} />
-      <ChatView tab="today" enabled={summariesReady}>
+      <LoadingScreen ready={planLoaded && readinessLoaded} />
+      <ChatView tab="today" openerEnabled={summariesReady}>
         <ReadinessHero readiness={readiness} date={getLocalDate()} />
         <PlanCard plan={plan} />
       </ChatView>

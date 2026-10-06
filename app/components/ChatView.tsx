@@ -7,18 +7,19 @@ import { ArrowUp } from "lucide-react";
 interface ChatViewProps {
   tab: string;
   children?: React.ReactNode;
-  enabled?: boolean;
+  // Gates only the opener request; saved messages hydrate regardless
+  openerEnabled?: boolean;
   autoOpen?: boolean;
 }
 
 export default function ChatView({
   tab,
   children,
-  enabled = true,
+  openerEnabled = true,
   autoOpen = true,
 }: ChatViewProps) {
   const { messages, input, setInput, sendMessage, loading, status } =
-    useChat(tab, enabled, autoOpen);
+    useChat(tab, openerEnabled, autoOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 

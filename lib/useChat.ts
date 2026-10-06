@@ -65,7 +65,14 @@ function placeholder(): ChatMessage {
   };
 }
 
-export function useChat(tab: string, enabled = true, autoOpen = true) {
+/**
+ * Chat state for one tab. Saved messages hydrate on mount, unconditionally.
+ * With none for today and `autoOpen` on, an opener is expected: typing dots
+ * show and the input locks from hydration until the reply lands, and the
+ * opener request itself fires once `openerEnabled` is true (Today holds it
+ * until /api/summarise has finished — the opener reads yesterday's summary).
+ */
+export function useChat(tab: string, openerEnabled = true, autoOpen = true) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [hydrating, setHydrating] = useState(false);
@@ -74,9 +81,13 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
   const [pending, setPendingState] = useState<PendingState | null>(null);
   // Code-generated line shown while a tool runs ("pulling up your runs…")
   const [status, setStatus] = useState<string | null>(null);
-  const [openerStarted, setOpenerStarted] = useState(false);
-  const openerRef = useRef(false);
-  const isOpenerStream = useRef(false);
+  // Hydration found no saved messages and autoOpen is on: the opener is
+  // due, and fires once openerEnabled allows
+  const [openerDue, setOpenerDue] = useState(false);
+  const hydratedRef = useRef(false);
+  const openerFiredRef = useRef(false);
+  // The dots bubble shown from hydration; the opener turn streams into it
+  const openerPlaceholderRef = useRef<ChatMessage | null>(null);
   const pendingRef = useRef<PendingState | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -175,16 +186,23 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
    *   {"t":"status","v"}  tool status line, shown in the dimmed slot
    *   {"t":"done"}        end of turn
    *   {"t":"error"}       the turn failed while we were connected
+   *   {"t":"held"}        opener only: an earlier request is already
+   *                       running it — no turn; wait for the saved reply
    * If the stream dies without done/error (app backgrounded, network
    * drop), the server still finishes: we keep waiting for the saved row.
+   * `into` is an existing placeholder to stream into (the opener's dots
+   * bubble, shown since hydration); otherwise a new one is added.
    */
   const runTurn = useCallback(
-    async (body: {
-      message: string;
-      userMessageId: string | null;
-      history: Array<{ role: "user" | "assistant"; content: string }>;
-    }) => {
-      const ph = placeholder();
+    async (
+      body: {
+        message: string;
+        userMessageId: string | null;
+        history: Array<{ role: "user" | "assistant"; content: string }>;
+      },
+      into?: ChatMessage
+    ) => {
+      const ph = into ?? placeholder();
       let replyId = ph.id;
       let ended = false;
       setMessages((prev) => upsertMessage(prev, ph));
@@ -196,7 +214,6 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
         setPending(null);
       };
 
-      let sawText = false;
       const handleLine = (line: string) => {
         if (!line.trim()) return;
         let frame: { t?: string; v?: unknown; id?: unknown };
@@ -211,13 +228,6 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
           replyId = frame.id;
           setMessages((prev) => retargetId(prev, from, frame.id as string));
         } else if (frame.t === "text" && typeof frame.v === "string") {
-          if (!sawText) {
-            sawText = true;
-            if (isOpenerStream.current) {
-              setOpenerStarted(true);
-              window.dispatchEvent(new Event("opener-started"));
-            }
-          }
           // Text after a tool call means the tool is done
           setStatus(null);
           const v = frame.v;
@@ -231,6 +241,11 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
           setPending(null);
         } else if (frame.t === "error") {
           fail();
+        } else if (frame.t === "held") {
+          // Another request — an earlier mount of this tab — is running
+          // this opener. Keep the dots: the saved reply arrives via
+          // realtime, or the fetch in finally finds it already there.
+          console.log("[useChat] opener held by an earlier request");
         }
       };
 
@@ -288,11 +303,12 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
     [tab, fetchSaved, mergeSaved, setPending]
   );
 
-  // Mount — hydrate from Supabase first, waits for enabled
+  // Mount — hydrate from Supabase at once. Nothing here waits on the
+  // caller: saved messages show immediately, and an expected opener shows
+  // its dots immediately.
   useEffect(() => {
-    if (!enabled) return;
-    if (openerRef.current) return;
-    openerRef.current = true;
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
 
     void (async () => {
       setHydrating(true);
@@ -300,40 +316,44 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
         const saved = await fetchSaved();
 
         if (saved && saved.length > 0) {
-          // Hydrate from persisted messages — skip opener
           mergeSaved(saved);
           watchIfUnanswered(saved);
-          setOpenerStarted(true);
-          window.dispatchEvent(new Event("opener-started"));
           return;
         }
 
-        // No existing messages — only fire auto-opener if autoOpen is true
-        if (!autoOpen) {
-          setOpenerStarted(true);
-          window.dispatchEvent(new Event("opener-started"));
-          return;
-        }
+        // No messages today. Only an auto-opening tab starts a turn.
+        if (!autoOpen) return;
 
-        isOpenerStream.current = true;
+        // Opener expected: dots and a locked input from now until the
+        // reply lands — through the openerEnabled wait and the turn
+        const ph = placeholder();
+        openerPlaceholderRef.current = ph;
         setPending({ userMessageId: null, since: Date.now() });
-        await runTurn({ message: "", userMessageId: null, history: [] });
-        isOpenerStream.current = false;
+        setMessages((prev) => upsertMessage(prev, ph));
+        setOpenerDue(true);
       } catch (err) {
-        isOpenerStream.current = false;
         console.error(err);
       } finally {
-        setOpenerStarted(true);
-        window.dispatchEvent(new Event("opener-started"));
         setHydrating(false);
       }
     })();
-  }, [tab, enabled, autoOpen, fetchSaved, mergeSaved, watchIfUnanswered, runTurn, setPending]);
+  }, [autoOpen, fetchSaved, mergeSaved, watchIfUnanswered, setPending]);
+
+  // The opener request: once due, and once the caller allows it. One per
+  // mount here; one per day and tab server-side (the claim in /api/chat —
+  // a remount mid-opener is told "held" and waits for the saved reply).
+  useEffect(() => {
+    if (!openerDue || !openerEnabled || openerFiredRef.current) return;
+    openerFiredRef.current = true;
+    void runTurn(
+      { message: "", userMessageId: null, history: [] },
+      openerPlaceholderRef.current ?? undefined
+    ).catch((err) => console.error(err));
+  }, [openerDue, openerEnabled, runTurn]);
 
   // Back in the foreground: re-fetch in case realtime missed an insert
   // while backgrounded, and resume waiting for an unanswered message
   useEffect(() => {
-    if (!enabled) return;
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
       void (async () => {
@@ -345,7 +365,7 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [enabled, fetchSaved, mergeSaved, watchIfUnanswered]);
+  }, [fetchSaved, mergeSaved, watchIfUnanswered]);
 
   const loading = hydrating || pending !== null;
 
@@ -371,5 +391,5 @@ export function useChat(tab: string, enabled = true, autoOpen = true) {
     await runTurn({ message: userMessage, userMessageId, history });
   }, [input, loading, messages, runTurn, setPending]);
 
-  return { messages, input, setInput, sendMessage, loading, status, openerStarted };
+  return { messages, input, setInput, sendMessage, loading, status };
 }

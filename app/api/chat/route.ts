@@ -8,6 +8,7 @@ import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
 import { pushLog } from "@/lib/debugLog";
 import { describeToolCall } from "@/lib/tool-status";
+import { claimOpener, releaseOpener, type OpenerClaim } from "@/lib/openerClaim";
 import {
   insertTurnRecord,
   type TurnToolCall,
@@ -78,6 +79,9 @@ async function safeExecuteTool(
 
 export async function POST(request: Request) {
   const t0 = Date.now();
+  // Set for an opener once claimed; released if the turn never persists
+  let claim: OpenerClaim | null = null;
+  let releaseClaim: () => Promise<void> = async () => {};
   try {
     const body = (await request.json()) as {
       message?: string;
@@ -120,6 +124,25 @@ export async function POST(request: Request) {
           h.content.trim() !== ""
       )
       .map((h) => ({ role: h.role, content: h.content }));
+
+    // The opener (empty message) runs once per athlete, date and tab. A
+    // remount or reload mid-opener hydrates nothing and asks again: it is
+    // told "held" and waits for the saved reply via realtime. A claim
+    // older than this route's 5-minute limit is reclaimed. On a claim
+    // error the turn runs anyway — an opener is better than none.
+    if (message.trim() === "") {
+      claim = await claimOpener(ATHLETE_ID, localDate, tab);
+      pushLog("opener_claim", { tab, date: localDate, outcome: claim.outcome });
+      if (claim.outcome === "held") {
+        return new Response(JSON.stringify({ t: "held" }) + "\n", {
+          headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
+        });
+      }
+      const token = claim.token;
+      if (token) {
+        releaseClaim = () => releaseOpener(ATHLETE_ID, localDate, tab, token);
+      }
+    }
 
     const contextStart = Date.now();
     const { systemPrompt, volatileBlock } = await buildContext(
@@ -620,6 +643,7 @@ export async function POST(request: Request) {
         // Persist the full reply under the id the start frame announced
         // (user message already saved above). Realtime delivers this row
         // to the client — the canonical copy, also when the stream died.
+        let persisted = false;
         if (fullResponse !== "") {
           try {
             const { error: replyInsertError } = await supabase.from("messages").insert({
@@ -638,11 +662,16 @@ export async function POST(request: Request) {
                 code: replyInsertError.code,
                 detail: replyInsertError.message,
               });
+            } else {
+              persisted = true;
             }
           } catch (saveError) {
             console.error("[chat] failed to save assistant message:", saveError);
           }
         }
+        // Nothing saved: a reopen would find no messages and ask for the
+        // opener again, so let it run
+        if (!persisted) await releaseClaim();
 
         pushLog("timing", {
           tab,
@@ -671,6 +700,7 @@ export async function POST(request: Request) {
         const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
         pushLog("error", { message: errMsg, total_ms: Date.now() - t0 });
         saveTurnRecord(null, errMsg);
+        await releaseClaim();
         console.error("[chat] turn failed:", streamErr);
         // Still connected: tell the client now. Otherwise it finds out
         // through its 5-minute timeout.
@@ -686,6 +716,8 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
     });
   } catch (error) {
+    // Failed before the turn started (context build, bad body)
+    await releaseClaim();
     const message =
       error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });

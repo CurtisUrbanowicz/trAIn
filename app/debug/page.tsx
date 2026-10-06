@@ -17,6 +17,7 @@ const TYPE_COLORS: Record<string, string> = {
   timing: "#f59e0b",
   wearable_sync: "#14b8a6",
   morning_chain: "#a855f7",
+  opener_claim: "#f472b6",
 };
 
 type MorningChainData = {
