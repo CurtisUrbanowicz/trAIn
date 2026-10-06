@@ -11,8 +11,9 @@ import {
 import {
   runReflection,
   getExistingInsight,
-  type ReflectionType,
 } from "./reflect";
+import type { InsightType } from "./reflection-context";
+import { patternsDue } from "./patterns";
 
 /**
  * The morning chain. Whoop scoring a recovery is the "they woke up" signal;
@@ -22,7 +23,8 @@ import {
  *   1. readiness for the wake date (reuses the sync logic; the wake date
  *      comes from Whoop's own timezone offset — nothing else is a clock)
  *   2. yesterday's daily summary if missing
- *   3. pulse and deep reflections for the wake date if missing, in parallel
+ *   3. pulse and deep reflections for the wake date if missing, and the
+ *      weekly patterns pass when due — all three in parallel
  *
  * Every step is idempotent by date, logged as a morning_chain debug entry,
  * and failure in one step never stops the next. Chat messages and today's
@@ -37,6 +39,7 @@ export type MorningStep =
   | "summarise"
   | "pulse"
   | "deep"
+  | "patterns"
   | "done";
 
 export type MorningOutcome =
@@ -178,7 +181,7 @@ export async function runMorningChain(
     if (sync.outcome === "skipped-stale") {
       // An old recovery re-fired. Summaries and insights are today-artefacts;
       // never generate them for the past.
-      for (const step of ["summarise", "pulse", "deep"] as const) {
+      for (const step of ["summarise", "pulse", "deep", "patterns"] as const) {
         steps[step] = "skipped-stale";
         logStep(step, wakeDate, "skipped-stale");
       }
@@ -265,9 +268,12 @@ export async function runMorningChain(
     });
   }
 
-  // Step 3 — pulse and deep, in parallel. Independent of each other; both
-  // read the summaries step 2 just wrote.
-  const reflect = async (type: ReflectionType) => {
+  // Step 3 — pulse, deep and patterns, in parallel. Independent of each
+  // other; all read the summaries step 2 just wrote. Patterns is weekly: due
+  // when no document exists or seven or more summaries post-date the current
+  // one, so pulse and deep usually read last week's document — fine for a
+  // long-term layer, and sequencing it first would risk the 300s budget.
+  const reflect = async (type: InsightType) => {
     const t3 = Date.now();
     try {
       if (await getExistingInsight(athleteId, date, type)) {
@@ -300,7 +306,45 @@ export async function runMorningChain(
       });
     }
   };
-  await Promise.all([reflect("pulse"), reflect("deep")]);
+  const patterns = async () => {
+    const t3 = Date.now();
+    try {
+      const due = await patternsDue(athleteId, date);
+      if (!due.due) {
+        steps.patterns = "skipped-existing";
+        logStep("patterns", date, "skipped-existing", {
+          ms: Date.now() - t3,
+          reason: due.reason,
+        });
+        return;
+      }
+      const result = await runReflection(athleteId, date, "patterns");
+      if ("error" in result) {
+        steps.patterns = "error";
+        logStep("patterns", date, "error", {
+          ms: Date.now() - t3,
+          message: result.error,
+          iterations: result.iterations,
+        });
+        return;
+      }
+      const outcome: MorningOutcome = result.cached ? "skipped-existing" : "written";
+      steps.patterns = outcome;
+      logStep("patterns", date, outcome, {
+        ms: Date.now() - t3,
+        iterations: result.iterations,
+        through_date: result.patterns?.through_date ?? null,
+        reason: due.reason,
+      });
+    } catch (err) {
+      steps.patterns = "error";
+      logStep("patterns", date, "error", {
+        ms: Date.now() - t3,
+        message: errorMessage(err),
+      });
+    }
+  };
+  await Promise.all([reflect("pulse"), reflect("deep"), patterns()]);
 
   const failed = Object.values(steps).includes("error");
   if (claim !== "error") {

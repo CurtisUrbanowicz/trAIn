@@ -393,6 +393,27 @@ export const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: "write_patterns",
+    description:
+      "Write the athlete's patterns document — the full document, replacing the current one. Call exactly once at the end of the patterns pass. The tool call is the output of the pass.",
+    input_schema: {
+      type: "object",
+      properties: {
+        content: {
+          type: "string",
+          description:
+            "The full document: three to five patterns, each ending [verified YYYY-MM-DD], then a one to two line training arc. Third person, no markdown, about 150 words and never more than 180.",
+        },
+        through_date: {
+          type: "string",
+          description:
+            "The latest daily summary date the document was verified against (YYYY-MM-DD), as given in context.",
+        },
+      },
+      required: ["content", "through_date"],
+    },
+  },
+  {
     name: "days_between",
     description:
       "Returns the number of days between two dates. Use this to verify any time gap before stating it.",
@@ -415,8 +436,8 @@ export const tools: Anthropic.Tool[] = [
 
 // Write tools whose successful execution should be recorded in the
 // actions table. Kept separate from the tool objects because the
-// Anthropic Tool type rejects extra fields. log_insight is a reflection
-// output, not a state-mutating action — excluded by design.
+// Anthropic Tool type rejects extra fields. log_insight and write_patterns
+// are reflection outputs, not athlete actions — excluded by design.
 export const MUTATING_TOOLS = new Set<string>([
   "log_sets",
   "log_run",
@@ -440,7 +461,9 @@ const HOT_TOOLS: Record<TabType, Set<string>> = {
 // log_insight is reflection-only (see app/api/reflect/route.ts). Excluded
 // from chat so the chat brain can't discover it via tool_search and call
 // it outside a reflection pass.
-const CHAT_EXCLUDED_TOOLS = new Set(["log_insight"]);
+// Reflection-only outputs: the chat brain never logs insights or rewrites
+// the patterns document
+const CHAT_EXCLUDED_TOOLS = new Set(["log_insight", "write_patterns"]);
 
 export function getToolsForTab(tab: TabType): Anthropic.ToolUnion[] {
   const hot = HOT_TOOLS[tab];

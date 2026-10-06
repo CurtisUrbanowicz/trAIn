@@ -4,7 +4,8 @@
 -- not the last three daily summaries. No model call, no new table.
 --
 -- p_today is the client's local date — the app's clock everywhere else; the
--- database clock is UTC and disagrees with the phone around midnight.
+-- database clock is UTC and disagrees with the phone around midnight. Every
+-- row is bounded by p_today, so a run for a past date sees nothing later.
 --
 --   runs           per run_type: last 3 (date, distance_km, avg_pace, avg_hr),
 --                  6-month longest (max distance) and fastest (min avg_pace,
@@ -20,6 +21,7 @@
 --   last_run, last_lift
 --
 -- Applied to project fyivrsmbvdvcjxissifw on 2026-10-06 via MCP.
+-- Revisions the same day: last-seen cap 8 -> 10; rows bounded by p_today.
 create or replace function public.get_training_state(
   p_athlete_id uuid,
   p_today date default current_date
@@ -38,6 +40,7 @@ with
       end as pace_s
     from runs
     where athlete_id = p_athlete_id
+      and date <= p_today
       and run_type is not null and run_type <> ''
   ),
   run_last3 as (
@@ -88,6 +91,7 @@ with
     select date, exercise, weight_kg, reps, rir, timestamp
     from sets
     where athlete_id = p_athlete_id
+      and date <= p_today
       and exercise is not null and exercise <> ''
   ),
   top_sets as (
@@ -171,16 +175,19 @@ with
           select round(sum(distance_km), 1) from runs r
           where r.athlete_id = p_athlete_id
             and r.date >= ws.week_start and r.date < ws.week_start + 7
+            and r.date <= p_today
         ), 0),
         'sessions', (
           select count(*) from (
             select date from runs r
             where r.athlete_id = p_athlete_id
               and r.date >= ws.week_start and r.date < ws.week_start + 7
+              and r.date <= p_today
             union
             select date from sets s
             where s.athlete_id = p_athlete_id
               and s.date >= ws.week_start and s.date < ws.week_start + 7
+              and s.date <= p_today
           ) u
         ),
         'partial', ws.week_start + 7 > p_today
@@ -208,7 +215,7 @@ select jsonb_build_object(
   'lifts_last_seen', (select v from last_seen_json),
   'weeks', (select v from weeks_json),
   'readiness_28d', (select v from readiness_json),
-  'last_run', (select to_char(max(date), 'YYYY-MM-DD') from runs where athlete_id = p_athlete_id),
-  'last_lift', (select to_char(max(date), 'YYYY-MM-DD') from sets where athlete_id = p_athlete_id)
+  'last_run', (select to_char(max(date), 'YYYY-MM-DD') from runs where athlete_id = p_athlete_id and date <= p_today),
+  'last_lift', (select to_char(max(date), 'YYYY-MM-DD') from sets where athlete_id = p_athlete_id and date <= p_today)
 );
 $$;

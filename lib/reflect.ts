@@ -3,7 +3,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   buildPulseContext,
   buildDeepContext,
+  buildPatternsContext,
   type ReflectionType,
+  type InsightType,
 } from "@/lib/reflection-context";
 import { supabase } from "@/lib/supabase";
 import { tools } from "@/lib/tools";
@@ -12,6 +14,11 @@ import { pushLog } from "@/lib/debugLog";
 import { REFLECT, ADAPTIVE_THINKING, REFLECT_EFFORT } from "@/lib/models";
 import { flagIncompleteStop, thinkingTokensFromEvent } from "@/lib/model-response";
 import { appendToolResultsWithCache } from "@/lib/cache-helpers";
+import {
+  getLatestPatterns,
+  isPatternsCurrent,
+  type PatternsRow,
+} from "@/lib/patterns";
 
 export type { ReflectionType };
 
@@ -20,10 +27,25 @@ const MODEL = REFLECT;
 const MAX_ITERATIONS: Record<ReflectionType, number> = {
   pulse: 8,
   deep: 20,
+  patterns: 15,
 };
 
-const GUARD_MESSAGE =
-  "Two rounds left. Call log_insight now with the best insight you've verified so far.";
+// Each pass ends with one output tool call: log_insight for pulse and deep,
+// write_patterns for the patterns document.
+const OUTPUT_TOOL: Record<ReflectionType, string> = {
+  pulse: "log_insight",
+  deep: "log_insight",
+  patterns: "write_patterns",
+};
+
+const GUARD_MESSAGE: Record<ReflectionType, string> = {
+  pulse:
+    "Two rounds left. Call log_insight now with the best insight you've verified so far.",
+  deep:
+    "Two rounds left. Call log_insight now with the best insight you've verified so far.",
+  patterns:
+    "Two rounds left. Call write_patterns now with the document as verified so far.",
+};
 
 export type InsightRow = {
   id: string;
@@ -35,13 +57,20 @@ export type InsightRow = {
 };
 
 export type ReflectionResult =
-  | { insight: InsightRow | null; iterations: number; cached: boolean }
+  | {
+      // pulse and deep: the insight row; patterns: null
+      insight: InsightRow | null;
+      // patterns: the document row; pulse and deep: undefined
+      patterns?: PatternsRow | null;
+      iterations: number;
+      cached: boolean;
+    }
   | { error: string; iterations?: number };
 
 export async function getExistingInsight(
   athleteId: string,
   localDate: string,
-  type: ReflectionType
+  type: InsightType
 ): Promise<InsightRow | null> {
   const { data } = await supabase
     .from("insights")
@@ -69,6 +98,13 @@ function summariseToolInput(name: string, input: Record<string, unknown>): strin
     const sig = input.significance;
     return `significance=${sig ?? "?"}`;
   }
+  if (name === "write_patterns") {
+    const words =
+      typeof input.content === "string"
+        ? input.content.trim().split(/\s+/).length
+        : 0;
+    return `through_date=${input.through_date ?? "?"}, ${words} words`;
+  }
   return "";
 }
 
@@ -87,12 +123,14 @@ async function safeExecuteTool(
 }
 
 /**
- * Runs one reflection pass (pulse or deep). The insight is persisted by the
- * model's own log_insight call; this returns the resulting row. Idempotent
- * per (athlete, date, type): an existing insight short-circuits as cached.
- * `onText` receives streamed model text and tool announcements for live UI;
- * the morning chain passes none. Never throws — failures come back as
- * { error } after being logged.
+ * Runs one reflection pass (pulse, deep or patterns). The output is written
+ * by the model's own tool call — log_insight for pulse and deep, write_patterns
+ * for the patterns document — and this returns the resulting row. Idempotent:
+ * an existing insight for (athlete, date, type) short-circuits as cached, and
+ * a patterns document already covering the latest summary does too. `onText`
+ * receives streamed model text and tool announcements for live UI; the
+ * morning chain passes none. Never throws — failures come back as { error }
+ * after being logged.
  */
 export async function runReflection(
   athleteId: string,
@@ -104,16 +142,26 @@ export async function runReflection(
     if (onText) onText(text);
   };
   let iterations = 0;
+  const outputTool = OUTPUT_TOOL[type];
 
   try {
-    const existing = await getExistingInsight(athleteId, localDate, type);
-    if (existing) return { insight: existing, iterations: 0, cached: true };
+    if (type === "patterns") {
+      const { current, latest } = await isPatternsCurrent(athleteId, localDate);
+      if (current) {
+        return { insight: null, patterns: latest, iterations: 0, cached: true };
+      }
+    } else {
+      const existing = await getExistingInsight(athleteId, localDate, type);
+      if (existing) return { insight: existing, iterations: 0, cached: true };
+    }
 
     const contextStart = Date.now();
     const { systemPrompt, volatileBlock } =
       type === "pulse"
         ? await buildPulseContext(athleteId, localDate)
-        : await buildDeepContext(athleteId, localDate);
+        : type === "deep"
+          ? await buildDeepContext(athleteId, localDate)
+          : await buildPatternsContext(athleteId, localDate);
     const contextMs = Date.now() - contextStart;
 
     pushLog("context_loaded", {
@@ -126,7 +174,7 @@ export async function runReflection(
     pushLog("model_used", { model: MODEL, type });
 
     const reflectionTools = tools
-      .filter((t) => t.name === "get_history" || t.name === "log_insight")
+      .filter((t) => t.name === "get_history" || t.name === outputTool)
       .map((t, i, arr) =>
         i === arr.length - 1
           ? { ...t, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
@@ -150,7 +198,8 @@ export async function runReflection(
       }
     };
 
-    let insightLogged = false;
+    // The output tool has been called and accepted
+    let outputWritten = false;
     let lastUsage: Anthropic.Messages.Usage | null = null;
     // Per iteration, from the raw message_delta (the accumulator drops it)
     const thinkingTokensPerIteration: Array<number | null> = [];
@@ -159,19 +208,19 @@ export async function runReflection(
     for (let i = 0; i < maxIters; i++) {
       iterations = i + 1;
 
-      // Loop guard: with exactly two calls remaining and no insight
-      // logged, tell the model to commit now. Appended as a trailing
-      // text block on the tool-results user turn (tool_result blocks
-      // must lead a user message, trailing text is valid).
-      if (i === maxIters - 2 && !insightLogged) {
+      // Loop guard: with exactly two calls remaining and no output written,
+      // tell the model to commit now. Appended as a trailing text block on
+      // the tool-results user turn (tool_result blocks must lead a user
+      // message, trailing text is valid).
+      if (i === maxIters - 2 && !outputWritten) {
         const last = apiMessages[apiMessages.length - 1];
         if (last?.role === "user" && Array.isArray(last.content)) {
           (last.content as Anthropic.Messages.ContentBlockParam[]).push({
             type: "text",
-            text: GUARD_MESSAGE,
+            text: GUARD_MESSAGE[type],
           });
         } else {
-          apiMessages.push({ role: "user", content: GUARD_MESSAGE });
+          apiMessages.push({ role: "user", content: GUARD_MESSAGE[type] });
         }
         pushLog("guard_fired", { type, iteration: iterations, maxIters });
       }
@@ -265,8 +314,8 @@ export async function runReflection(
       toolUses.forEach((block, idx) => {
         const result = results[idx]!;
 
-        if (block.name === "log_insight" && !result.startsWith("Error")) {
-          insightLogged = true;
+        if (block.name === outputTool && !result.startsWith("Error")) {
+          outputWritten = true;
         }
 
         toolResults.push({
@@ -278,7 +327,7 @@ export async function runReflection(
 
       appendToolResultsWithCache(apiMessages, toolResults);
 
-      if (insightLogged) break;
+      if (outputWritten) break;
     }
 
     if (lastUsage) {
@@ -296,7 +345,12 @@ export async function runReflection(
       });
     }
 
-    if (insightLogged) {
+    if (outputWritten) {
+      if (type === "patterns") {
+        const row = await getLatestPatterns(athleteId);
+        return { insight: null, patterns: row, iterations, cached: false };
+      }
+
       const { data: row } = await supabase
         .from("insights")
         .select("id, type, content, significance, created_at, date")
@@ -313,11 +367,14 @@ export async function runReflection(
     }
 
     pushLog("error", {
-      message: "Reflection pass ended without logging an insight",
+      message: `Reflection pass ended without calling ${outputTool}`,
       type,
       iterations,
     });
-    return { error: "no_insight_logged", iterations };
+    return {
+      error: type === "patterns" ? "no_patterns_written" : "no_insight_logged",
+      iterations,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     pushLog("error", { message, type });

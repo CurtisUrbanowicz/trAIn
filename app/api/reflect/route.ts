@@ -36,9 +36,13 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (body.type !== "pulse" && body.type !== "deep") {
+    if (
+      body.type !== "pulse" &&
+      body.type !== "deep" &&
+      body.type !== "patterns"
+    ) {
       return NextResponse.json(
-        { error: 'type must be "pulse" or "deep"' },
+        { error: 'type must be "pulse", "deep" or "patterns"' },
         { status: 400 }
       );
     }
@@ -52,10 +56,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Idempotency: an insight already exists for this date/type
-    const existing = await getExistingInsight(athleteId, localDate, type);
-    if (existing) {
-      return NextResponse.json({ insight: existing, cached: true });
+    // Idempotency: an insight already exists for this date/type. The
+    // patterns pass checks its own currency inside runReflection.
+    if (type !== "patterns") {
+      const existing = await getExistingInsight(athleteId, localDate, type);
+      if (existing) {
+        return NextResponse.json({ insight: existing, cached: true });
+      }
     }
 
     const encoder = new TextEncoder();

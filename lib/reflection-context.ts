@@ -2,12 +2,21 @@ import "server-only";
 import { supabase } from "@/lib/supabase";
 import {
   formatDate,
+  formatTrainingState,
   getAthleteProfile,
-  getUserPreferences,
-  getRecentSummaries,
   getContextIndexCounts,
+  getRecentSummaries,
+  getTrainingState,
+  getUserPreferences,
   type ContextIndexCounts,
+  type TrainingState,
 } from "@/lib/context";
+import {
+  formatPatternsBlock,
+  getLatestPatterns,
+  getLatestSummaryDateBefore,
+  type PatternsRow,
+} from "@/lib/patterns";
 import { loadReflectionSystemPrompt } from "@/prompts/manifest";
 
 export type ReflectionContext = {
@@ -15,7 +24,9 @@ export type ReflectionContext = {
   volatileBlock: string;
 };
 
-export type ReflectionType = "pulse" | "deep";
+// pulse and deep write insights rows; patterns maintains athlete_patterns
+export type ReflectionType = "pulse" | "deep" | "patterns";
+export type InsightType = "pulse" | "deep";
 
 type InsightRow = {
   date: string;
@@ -25,7 +36,7 @@ type InsightRow = {
 
 async function getRecentInsights(
   athleteId: string,
-  type: ReflectionType,
+  type: InsightType,
   limit: number
 ): Promise<InsightRow[]> {
   const { data, error } = await supabase
@@ -102,11 +113,66 @@ function formatContextIndex(ci: ContextIndexCounts): string {
   ].join("\n");
 }
 
+const EMPTY_RANGE = { count: 0, earliest: null, latest: null };
+const EMPTY_CONTEXT_INDEX: ContextIndexCounts = {
+  summaries: EMPTY_RANGE,
+  runs: EMPTY_RANGE,
+  sets: EMPTY_RANGE,
+  mesocycles: { count: 0 },
+  weeklyPlans: { count: 0 },
+  exercises: [],
+  runTypes: [],
+};
+
+/** Unwraps a settled load: the value, or the fallback after logging. */
+function settled<T>(
+  result: PromiseSettledResult<T>,
+  fallback: T,
+  label: string
+): T {
+  if (result.status === "fulfilled") return result.value;
+  console.error(`[reflection-context] ${label} failed:`, result.reason);
+  return fallback;
+}
+
+// Every pass reads the long-term picture and the exact recent shape of
+// training, so it builds on them instead of restating them.
+const BUILD_ON =
+  " <athlete_patterns> is the verified long-term picture of this athlete and <training_state> the exact recent shape of training — build on them, don't restate them.";
+
 const PULSE_INSTRUCTIONS =
-  "You are running a reflection pass. Read your profile and preferences, review prior insights so you don't restate them, and use the recent summaries as your primary source for this week. Verify any claim against raw data via get_history before calling log_insight.";
+  "You are running a reflection pass. Read your profile and preferences, review prior insights so you don't restate them, and use the recent summaries as your primary source for this week. Verify any claim against raw data via get_history before calling log_insight." +
+  BUILD_ON;
 
 const DEEP_INSTRUCTIONS =
-  "You are running a reflection pass. Read your profile and preferences, review prior insights so you don't restate them, and use recent summaries for orientation only. The real investigation happens via get_history against raw tables. Use the context index to know what's available. Verify any claim against data before calling log_insight.";
+  "You are running a reflection pass. Read your profile and preferences, review prior insights so you don't restate them, and use recent summaries for orientation only. The real investigation happens via get_history against raw tables. Use the context index to know what's available. Verify any claim against data before calling log_insight." +
+  BUILD_ON;
+
+const PATTERNS_INSTRUCTIONS =
+  "You are maintaining the athlete's patterns document. Read your profile and preferences, the current document in <athlete_patterns>, the recent deep insights and <training_state>. Re-verify every existing pattern against raw data via get_history, add at most one new pattern, then write the full document with write_patterns.";
+
+function stableBlocks(
+  instructions: string,
+  profile: { content: string } | null,
+  preferences: { content: string } | null,
+  patterns: PatternsRow | null,
+  trainingState: TrainingState | null
+): string[] {
+  return [
+    `<context_instructions>\n${instructions}\n</context_instructions>`,
+    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`,
+    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`,
+    formatPatternsBlock(patterns),
+    formatTrainingState(trainingState),
+  ];
+}
+
+function assemble(systemPrompt: string, stable: string[], volatile: string[]): ReflectionContext {
+  return {
+    systemPrompt: `${systemPrompt}\n\n<persistent_context>\n${stable.join("\n\n")}\n</persistent_context>`,
+    volatileBlock: volatile.join("\n\n"),
+  };
+}
 
 export async function buildPulseContext(
   athleteId: string,
@@ -118,58 +184,34 @@ export async function buildPulseContext(
     preferencesResult,
     insightsResult,
     summariesResult,
+    patternsResult,
+    trainingStateResult,
   ] = await Promise.allSettled([
     loadReflectionSystemPrompt("pulse"),
     getAthleteProfile(athleteId),
     getUserPreferences(athleteId),
     getRecentInsights(athleteId, "pulse", 3),
     getRecentSummaries(athleteId, localDate, 7),
+    getLatestPatterns(athleteId),
+    getTrainingState(athleteId, localDate),
   ]);
 
-  const systemPrompt =
-    promptResult.status === "fulfilled" ? promptResult.value : "";
-  if (promptResult.status === "rejected") {
-    console.error("[buildPulseContext] loadReflectionSystemPrompt failed:", promptResult.reason);
-  }
+  const systemPrompt = settled(promptResult, "", "loadReflectionSystemPrompt(pulse)");
+  const profile = settled(profileResult, null, "getAthleteProfile");
+  const preferences = settled(preferencesResult, null, "getUserPreferences");
+  const insights = settled(insightsResult, [], "getRecentInsights(pulse)");
+  const summaries = settled(summariesResult, [], "getRecentSummaries");
+  const patterns = settled(patternsResult, null, "getLatestPatterns");
+  const trainingState = settled(trainingStateResult, null, "getTrainingState");
 
-  const profile =
-    profileResult.status === "fulfilled" ? profileResult.value : null;
-  if (profileResult.status === "rejected") {
-    console.error("[buildPulseContext] getAthleteProfile failed:", profileResult.reason);
-  }
-
-  const preferences =
-    preferencesResult.status === "fulfilled" ? preferencesResult.value : null;
-  if (preferencesResult.status === "rejected") {
-    console.error("[buildPulseContext] getUserPreferences failed:", preferencesResult.reason);
-  }
-
-  const insights =
-    insightsResult.status === "fulfilled" ? insightsResult.value : [];
-  if (insightsResult.status === "rejected") {
-    console.error("[buildPulseContext] getRecentInsights failed:", insightsResult.reason);
-  }
-
-  const summaries =
-    summariesResult.status === "fulfilled" ? summariesResult.value : [];
-  if (summariesResult.status === "rejected") {
-    console.error("[buildPulseContext] getRecentSummaries failed:", summariesResult.reason);
-  }
-
-  const stable: string[] = [
-    `<context_instructions>\n${PULSE_INSTRUCTIONS}\n</context_instructions>`,
-    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`,
-    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`,
-  ];
+  const stable = stableBlocks(PULSE_INSTRUCTIONS, profile, preferences, patterns, trainingState);
   const volatile: string[] = [
     `<date>\n${formatDate(localDate)}\n</date>`,
     `<prior_pulse_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_pulse_insights>`,
     `<recent_summaries count="${summaries.length}">\n${formatSummariesBlock(summaries)}\n</recent_summaries>`,
   ];
 
-  const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stable.join("\n\n")}\n</persistent_context>`;
-
-  return { systemPrompt: fullSystemPrompt, volatileBlock: volatile.join("\n\n") };
+  return assemble(systemPrompt, stable, volatile);
 }
 
 export async function buildDeepContext(
@@ -183,6 +225,8 @@ export async function buildDeepContext(
     insightsResult,
     summariesResult,
     contextIndexResult,
+    patternsResult,
+    trainingStateResult,
   ] = await Promise.allSettled([
     loadReflectionSystemPrompt("deep"),
     getAthleteProfile(athleteId),
@@ -190,61 +234,20 @@ export async function buildDeepContext(
     getRecentInsights(athleteId, "deep", 5),
     getRecentSummaries(athleteId, localDate, 7),
     getContextIndexCounts(athleteId),
+    getLatestPatterns(athleteId),
+    getTrainingState(athleteId, localDate),
   ]);
 
-  const systemPrompt =
-    promptResult.status === "fulfilled" ? promptResult.value : "";
-  if (promptResult.status === "rejected") {
-    console.error("[buildDeepContext] loadReflectionSystemPrompt failed:", promptResult.reason);
-  }
+  const systemPrompt = settled(promptResult, "", "loadReflectionSystemPrompt(deep)");
+  const profile = settled(profileResult, null, "getAthleteProfile");
+  const preferences = settled(preferencesResult, null, "getUserPreferences");
+  const insights = settled(insightsResult, [], "getRecentInsights(deep)");
+  const summaries = settled(summariesResult, [], "getRecentSummaries");
+  const contextIndex = settled(contextIndexResult, EMPTY_CONTEXT_INDEX, "getContextIndexCounts");
+  const patterns = settled(patternsResult, null, "getLatestPatterns");
+  const trainingState = settled(trainingStateResult, null, "getTrainingState");
 
-  const profile =
-    profileResult.status === "fulfilled" ? profileResult.value : null;
-  if (profileResult.status === "rejected") {
-    console.error("[buildDeepContext] getAthleteProfile failed:", profileResult.reason);
-  }
-
-  const preferences =
-    preferencesResult.status === "fulfilled" ? preferencesResult.value : null;
-  if (preferencesResult.status === "rejected") {
-    console.error("[buildDeepContext] getUserPreferences failed:", preferencesResult.reason);
-  }
-
-  const insights =
-    insightsResult.status === "fulfilled" ? insightsResult.value : [];
-  if (insightsResult.status === "rejected") {
-    console.error("[buildDeepContext] getRecentInsights failed:", insightsResult.reason);
-  }
-
-  const summaries =
-    summariesResult.status === "fulfilled" ? summariesResult.value : [];
-  if (summariesResult.status === "rejected") {
-    console.error("[buildDeepContext] getRecentSummaries failed:", summariesResult.reason);
-  }
-
-  const emptyRange = { count: 0, earliest: null, latest: null };
-  const defaultContextIndex: ContextIndexCounts = {
-    summaries: emptyRange,
-    runs: emptyRange,
-    sets: emptyRange,
-    mesocycles: { count: 0 },
-    weeklyPlans: { count: 0 },
-    exercises: [],
-    runTypes: [],
-  };
-  const contextIndex =
-    contextIndexResult.status === "fulfilled"
-      ? contextIndexResult.value
-      : defaultContextIndex;
-  if (contextIndexResult.status === "rejected") {
-    console.error("[buildDeepContext] getContextIndexCounts failed:", contextIndexResult.reason);
-  }
-
-  const stable: string[] = [
-    `<context_instructions>\n${DEEP_INSTRUCTIONS}\n</context_instructions>`,
-    `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`,
-    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`,
-  ];
+  const stable = stableBlocks(DEEP_INSTRUCTIONS, profile, preferences, patterns, trainingState);
   const volatile: string[] = [
     `<date>\n${formatDate(localDate)}\n</date>`,
     `<prior_deep_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_deep_insights>`,
@@ -252,7 +255,59 @@ export async function buildDeepContext(
     `<context_index>\n${formatContextIndex(contextIndex)}\n</context_index>`,
   ];
 
-  const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stable.join("\n\n")}\n</persistent_context>`;
+  return assemble(systemPrompt, stable, volatile);
+}
 
-  return { systemPrompt: fullSystemPrompt, volatileBlock: volatile.join("\n\n") };
+/**
+ * The patterns pass: profile, preferences, the current document, the last
+ * seven deep insights (candidates to verify), training_state and the context
+ * index. No daily summaries — the pass works from raw tables. The volatile
+ * block names the through_date to pass, so it is never guessed.
+ */
+export async function buildPatternsContext(
+  athleteId: string,
+  localDate: string
+): Promise<ReflectionContext> {
+  const [
+    promptResult,
+    profileResult,
+    preferencesResult,
+    insightsResult,
+    contextIndexResult,
+    patternsResult,
+    trainingStateResult,
+    latestSummaryResult,
+  ] = await Promise.allSettled([
+    loadReflectionSystemPrompt("patterns"),
+    getAthleteProfile(athleteId),
+    getUserPreferences(athleteId),
+    getRecentInsights(athleteId, "deep", 7),
+    getContextIndexCounts(athleteId),
+    getLatestPatterns(athleteId),
+    getTrainingState(athleteId, localDate),
+    getLatestSummaryDateBefore(athleteId, localDate),
+  ]);
+
+  const systemPrompt = settled(promptResult, "", "loadReflectionSystemPrompt(patterns)");
+  const profile = settled(profileResult, null, "getAthleteProfile");
+  const preferences = settled(preferencesResult, null, "getUserPreferences");
+  const insights = settled(insightsResult, [], "getRecentInsights(deep)");
+  const contextIndex = settled(contextIndexResult, EMPTY_CONTEXT_INDEX, "getContextIndexCounts");
+  const patterns = settled(patternsResult, null, "getLatestPatterns");
+  const trainingState = settled(trainingStateResult, null, "getTrainingState");
+  const latestSummary = settled(latestSummaryResult, null, "getLatestSummaryDateBefore");
+
+  const throughDateLine = latestSummary
+    ? `Latest daily summary: ${formatDate(latestSummary)}. Pass ${latestSummary} as through_date.`
+    : `No daily summaries yet. Pass ${localDate} as through_date.`;
+
+  const stable = stableBlocks(PATTERNS_INSTRUCTIONS, profile, preferences, patterns, trainingState);
+  const volatile: string[] = [
+    `<date>\n${formatDate(localDate)}\n</date>`,
+    `<through_date>\n${throughDateLine}\n</through_date>`,
+    `<recent_deep_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</recent_deep_insights>`,
+    `<context_index>\n${formatContextIndex(contextIndex)}\n</context_index>`,
+  ];
+
+  return assemble(systemPrompt, stable, volatile);
 }

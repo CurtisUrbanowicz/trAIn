@@ -624,6 +624,9 @@ async function daysBetween(input: Record<string, unknown>): Promise<string> {
   return `${diff} days`;
 }
 
+// write_patterns: the document's hard length ceiling (prompt target ~150)
+const PATTERNS_MAX_WORDS = 180;
+
 // ── Main dispatcher ─────────────────────────────────────────────
 
 export async function executeTool(
@@ -695,6 +698,50 @@ export async function executeTool(
       } else {
         result = `Insight logged. id=${data.id}, type=${type}, significance=${significance}.`;
       }
+      break;
+    }
+    case "write_patterns": {
+      // The patterns pass's output: one new athlete_patterns row (append-only;
+      // the newest row is the current document). through_date is the latest
+      // summary the pass verified against — never after the run date.
+      const { content, through_date } = input as {
+        content?: unknown;
+        through_date?: unknown;
+      };
+      if (typeof content !== "string" || content.trim() === "") {
+        result = "Error: content must be a non-empty string.";
+        break;
+      }
+      if (
+        typeof through_date !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(through_date)
+      ) {
+        result = "Error: through_date must be a YYYY-MM-DD date.";
+        break;
+      }
+      if (through_date > context.localDate) {
+        result = `Error: through_date ${through_date} is after today (${context.localDate}).`;
+        break;
+      }
+      const words = content.trim().split(/\s+/).length;
+      // Hard ceiling: the first live run came in at 202 words against a
+      // ~150 target. A rejection costs one iteration; the model tightens.
+      if (words > PATTERNS_MAX_WORDS) {
+        result = `Error: ${words} words — the document must be ${PATTERNS_MAX_WORDS} words or fewer. Tighten the evidence lines (fewer words per instance, not fewer instances) and call write_patterns again.`;
+        break;
+      }
+      const { data, error } = await supabase
+        .from("athlete_patterns")
+        .insert({
+          athlete_id: context.athleteId,
+          content: content.trim(),
+          through_date,
+        })
+        .select("id")
+        .single();
+      result = error
+        ? `Error writing patterns: ${error.message}`
+        : `Patterns written. id=${data.id}, through_date=${through_date}, ${words} words.`;
       break;
     }
     default:

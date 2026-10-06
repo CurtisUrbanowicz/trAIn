@@ -1,6 +1,18 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
+
+const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
+
+// athlete_patterns version history: newest first, read with the anon key
+// like the other app tables (RLS off)
+type PatternsVersion = {
+  id: string;
+  content: string;
+  through_date: string;
+  timestamp: string;
+};
 
 interface DebugEntry {
   timestamp: string;
@@ -40,6 +52,19 @@ function describeMorningChain(entry: DebugEntry): string {
 
 export default function DebugPage() {
   const [entries, setEntries] = useState<DebugEntry[]>([]);
+  const [patterns, setPatterns] = useState<PatternsVersion[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from("athlete_patterns")
+      .select("id, content, through_date, timestamp")
+      .eq("athlete_id", ATHLETE_ID)
+      .order("timestamp", { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        if (data) setPatterns(data as PatternsVersion[]);
+      });
+  }, []);
 
   const fetchLog = useCallback(() => {
     fetch("/api/debug/log")
@@ -125,6 +150,61 @@ export default function DebugPage() {
           Clear
         </button>
       </div>
+
+      <details
+        style={{
+          background: "var(--bg-surface)",
+          borderRadius: 8,
+          padding: "10px 12px",
+          marginBottom: 16,
+          borderLeft: "3px solid #eab308",
+        }}
+      >
+        <summary style={{ cursor: "pointer", fontWeight: 600, color: "#eab308" }}>
+          Patterns history ({patterns.length}
+          {patterns.length === 20 ? "+" : ""})
+          {patterns[0] && (
+            <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+              {" "}
+              · current through {patterns[0].through_date}, written{" "}
+              {new Date(patterns[0].timestamp).toLocaleString()}
+            </span>
+          )}
+        </summary>
+        {patterns.length === 0 && (
+          <p style={{ color: "var(--text-muted)", margin: "8px 0 0" }}>
+            No patterns document yet.
+          </p>
+        )}
+        {patterns.map((p, i) => (
+          <div
+            key={p.id}
+            style={{
+              marginTop: 10,
+              paddingTop: 10,
+              borderTop: i === 0 ? "none" : "1px solid var(--border-default)",
+            }}
+          >
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 4 }}>
+              {i === 0 ? "current" : `v-${i}`} · through {p.through_date} ·{" "}
+              {new Date(p.timestamp).toLocaleString()} ·{" "}
+              {p.content.trim().split(/\s+/).length} words
+            </div>
+            <pre
+              style={{
+                color: "var(--text-primary)",
+                margin: 0,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                lineHeight: 1.4,
+                fontFamily: "inherit",
+              }}
+            >
+              {p.content}
+            </pre>
+          </div>
+        ))}
+      </details>
 
       {entries.length === 0 && (
         <p style={{ color: "var(--text-muted)" }}>No log entries yet.</p>

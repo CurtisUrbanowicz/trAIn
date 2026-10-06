@@ -430,6 +430,11 @@ Decided: 2026-10-06.
 The brain read training_state correctly but verified it with get_history every time — three for three on Coach, including a last-squat date the block states outright. Two causes: context_instructions never mentioned the block, and coach.md opened with "Read across the full history before responding." context_instructions now says the block is exact and current, answer from it, and get_history is for detail it doesn't hold or dates beyond its windows; Coach reads what's in context first and goes to history when the question outgrows it. Prompt text only; reflection contexts get the block in Prompt 2.
 Rejected: a hard "no tools for these questions" rule (the block's coverage will change).
 
+athlete_patterns — weekly evidence-backed long-term layer
+Decided: 2026-10-06.
+The profile is chat-owned and athlete-confirmed, summaries reach three days back, training_state is numbers: nothing held the long-term behavioural picture with evidence attached. athlete_patterns (append-only, newest row current) holds a ~150-word document: three to five patterns, each quantified with at least three dated instances and tagged [verified date], plus a training arc. A patterns reflection pass (get_history + write_patterns, 15 iterations) re-verifies every existing pattern — strengthen, retire or keep — adds at most one, and rewrites the document. The morning chain runs it in parallel with pulse and deep when no document exists or seven summaries post-date the current through_date; it skips when the document already covers the latest summary. Every tab's stable block carries it after preferences, declared verified in context_instructions; pulse and deep read it and training_state so they build on rather than restate. Third person, profile pronouns, no coaching-interaction patterns. get_training_state now bounds rows by its date.
+Rejected: folding patterns into the profile (different ownership and voice), one more insight type (insights are dated observations, this is a maintained document), running before pulse and deep (the 300s budget).
+
 
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.

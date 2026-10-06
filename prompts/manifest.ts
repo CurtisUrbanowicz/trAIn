@@ -19,6 +19,7 @@ export const promptPaths = {
   reflection: {
     pulse: "prompts/reflection/pulse.md",
     deep: "prompts/reflection/deep.md",
+    patterns: "prompts/reflection/patterns.md",
   } satisfies Record<ReflectionType, PromptPath>,
   summarise: {
     base: "prompts/summarise/base.md",

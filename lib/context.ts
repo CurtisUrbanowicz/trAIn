@@ -1,6 +1,7 @@
 import "server-only";
 import { supabase } from "./supabase";
 import { loadChatSystemPrompt } from "@/prompts/manifest";
+import { formatPatternsBlock, getLatestPatterns, type PatternsRow } from "./patterns";
 
 export function formatDate(dateStr: string): string {
   const days = [
@@ -41,15 +42,18 @@ const SUMMARY_LIMIT: Record<TabType, number> = {
 export type ContextResult = {
   systemPrompt: string;
   volatileBlock: string;
-  // The rendered <training_state> block (also inside systemPrompt); exposed
-  // for the context_loaded log entry and /api/debug/context
+  // The rendered <training_state> and <athlete_patterns> blocks (also inside
+  // systemPrompt); exposed for the context_loaded log entry and
+  // /api/debug/context
   trainingStateBlock: string;
+  patternsBlock: string;
 };
 
 export type FormattedContext = {
   stableBlock: string;
   volatileBlock: string;
   trainingStateBlock: string;
+  patternsBlock: string;
 };
 
 export type ContextIndexCounts = {
@@ -674,14 +678,17 @@ export function formatContext(
     actions: Awaited<ReturnType<typeof getTodaysActions>>;
     // Null when the RPC failed — the block then says "unavailable"
     trainingState: TrainingState | null;
+    // Newest athlete_patterns row; null before the first patterns pass
+    patterns: PatternsRow | null;
   }
 ): FormattedContext {
   const stable: string[] = [];
   const volatile: string[] = [];
   const trainingStateBlock = formatTrainingState(data.trainingState);
+  const patternsBlock = formatPatternsBlock(data.patterns);
 
   stable.push(
-    `<context_instructions>\nEmpty fields mean no data exists — do not assume or infer values. Daily summaries are your primary memory of recent training. The training_state block is exact and current — answer from it directly, and use get_history only for detail it doesn't hold or anything older than its windows. The context index shows what deeper data is available — retrieve via tool call when it would improve your response.\n</context_instructions>`
+    `<context_instructions>\nEmpty fields mean no data exists — do not assume or infer values. Daily summaries are your primary memory of recent training. The training_state block is exact and current — answer from it directly, and use get_history only for detail it doesn't hold or anything older than its windows. The athlete_patterns block is verified long-term behaviour — use it when planning or coaching rather than re-deriving it. The context index shows what deeper data is available — retrieve via tool call when it would improve your response.\n</context_instructions>`
   );
 
   stable.push(
@@ -691,6 +698,9 @@ export function formatContext(
   stable.push(
     `<user_preferences>\n${data.preferences?.content ?? "Not yet set"}\n</user_preferences>`
   );
+
+  // Verified long-term behaviour, rewritten weekly by the patterns pass
+  stable.push(patternsBlock);
 
   if (data.mesocycle) {
     const m = data.mesocycle;
@@ -866,6 +876,7 @@ export function formatContext(
     stableBlock: stable.join("\n\n"),
     volatileBlock: volatile.join("\n\n"),
     trainingStateBlock,
+    patternsBlock,
   };
 }
 
@@ -907,6 +918,7 @@ export async function buildContext(
     contextIndexResult,
     actionsResult,
     trainingStateResult,
+    patternsResult,
   ] = await Promise.allSettled([
     loadChatSystemPrompt(tab),
     getAthleteProfile(athleteId),
@@ -924,6 +936,7 @@ export async function buildContext(
     getContextIndexCounts(athleteId),
     getTodaysActions(athleteId, localDate),
     getTrainingState(athleteId, localDate),
+    getLatestPatterns(athleteId),
   ]);
 
   const systemPrompt =
@@ -1053,12 +1066,14 @@ export async function buildContext(
     );
   }
 
-  const { stableBlock, volatileBlock, trainingStateBlock } = formatContext(
-    tab,
-    localDate,
-    weekStart,
-    localTime,
-    {
+  const patterns =
+    patternsResult.status === "fulfilled" ? patternsResult.value : null;
+  if (patternsResult.status === "rejected") {
+    console.error("[buildContext] getLatestPatterns failed:", patternsResult.reason);
+  }
+
+  const { stableBlock, volatileBlock, trainingStateBlock, patternsBlock } =
+    formatContext(tab, localDate, weekStart, localTime, {
       profile,
       preferences,
       mesocycle,
@@ -1071,10 +1086,15 @@ export async function buildContext(
       contextIndex,
       actions,
       trainingState,
-    }
-  );
+      patterns,
+    });
 
   const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stableBlock}\n</persistent_context>`;
 
-  return { systemPrompt: fullSystemPrompt, volatileBlock, trainingStateBlock };
+  return {
+    systemPrompt: fullSystemPrompt,
+    volatileBlock,
+    trainingStateBlock,
+    patternsBlock,
+  };
 }

@@ -38,11 +38,8 @@ export async function GET(request: Request) {
       searchParams.get("localDate")?.trim() || todayUtcYmd();
 
     const weekStart = getWeekStartMondayUtc(localDate);
-    const { systemPrompt, volatileBlock, trainingStateBlock } = await buildContext(
-      ATHLETE_ID,
-      tab,
-      localDate
-    );
+    const { systemPrompt, volatileBlock, trainingStateBlock, patternsBlock } =
+      await buildContext(ATHLETE_ID, tab, localDate);
 
     return NextResponse.json({
       tab,
@@ -51,10 +48,13 @@ export async function GET(request: Request) {
       systemPromptLength: systemPrompt.length,
       volatileBlockLength: volatileBlock.length,
       trainingStateLength: trainingStateBlock.length,
+      patternsLength: patternsBlock.length,
       systemPrompt,
       volatileBlock,
-      // The computed <training_state> block on its own (also in systemPrompt)
+      // The computed <training_state> and <athlete_patterns> blocks on their
+      // own (both also inside systemPrompt)
       trainingState: trainingStateBlock,
+      patterns: patternsBlock,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

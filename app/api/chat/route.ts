@@ -146,12 +146,8 @@ export async function POST(request: Request) {
     }
 
     const contextStart = Date.now();
-    const { systemPrompt, volatileBlock, trainingStateBlock } = await buildContext(
-      ATHLETE_ID,
-      tab,
-      localDate,
-      localTime
-    );
+    const { systemPrompt, volatileBlock, trainingStateBlock, patternsBlock } =
+      await buildContext(ATHLETE_ID, tab, localDate, localTime);
     const contextMs = Date.now() - contextStart;
 
     const anthropic = new Anthropic();
@@ -162,19 +158,26 @@ export async function POST(request: Request) {
     // are in; a failed count logs as null, never delays the turn.
     waitUntil(
       (async () => {
-        const [systemPromptTokens, contextBlockTokens, trainingStateTokens] =
-          await Promise.all([
-            countTextTokens(anthropic, systemPrompt),
-            countTextTokens(anthropic, volatileBlock),
-            countTextTokens(anthropic, trainingStateBlock),
-          ]);
+        const [
+          systemPromptTokens,
+          contextBlockTokens,
+          trainingStateTokens,
+          patternsTokens,
+        ] = await Promise.all([
+          countTextTokens(anthropic, systemPrompt),
+          countTextTokens(anthropic, volatileBlock),
+          countTextTokens(anthropic, trainingStateBlock),
+          countTextTokens(anthropic, patternsBlock),
+        ]);
         await pushLogAsync("context_loaded", {
           tab,
           contextBlockLength: volatileBlock.length,
           trainingStateLength: trainingStateBlock.length,
+          patternsLength: patternsBlock.length,
           systemPromptLength: systemPrompt.length,
           contextBlockTokens,
           trainingStateTokens,
+          patternsTokens,
           systemPromptTokens,
         });
       })()
