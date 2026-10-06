@@ -41,11 +41,15 @@ const SUMMARY_LIMIT: Record<TabType, number> = {
 export type ContextResult = {
   systemPrompt: string;
   volatileBlock: string;
+  // The rendered <training_state> block (also inside systemPrompt); exposed
+  // for the context_loaded log entry and /api/debug/context
+  trainingStateBlock: string;
 };
 
 export type FormattedContext = {
   stableBlock: string;
   volatileBlock: string;
+  trainingStateBlock: string;
 };
 
 export type ContextIndexCounts = {
@@ -350,6 +354,272 @@ export async function getContextIndexCounts(
   };
 }
 
+// ── training_state ───────────────────────────────────────────────
+//
+// A computed intermediate layer between the raw tables and the brain: one
+// RPC returns the recent shape of training (runs per type, top sets per
+// lift, weekly volume, readiness medians) so the brain stops anchoring on
+// the last three daily summaries. No model call, no new table. The client's
+// local date is the clock, as everywhere else in the app.
+// See supabase/migrations/20261006120000_get_training_state_rpc.sql.
+
+export type TrainingState = {
+  today: string;
+  runs: Record<
+    string,
+    {
+      last3: {
+        date: string;
+        distance_km: number | null;
+        avg_pace: string | null;
+        avg_hr: number | null;
+      }[];
+      longest: { date: string; distance_km: number | null } | null;
+      fastest: { date: string; avg_pace: string | null } | null;
+    }
+  >;
+  lifts: Record<
+    string,
+    {
+      last3: {
+        date: string;
+        weight_kg: number | null;
+        reps: number | null;
+        rir: number | null;
+      }[];
+      best: { date: string; weight_kg: number | null; reps: number | null } | null;
+    }
+  >;
+  // Seen in the last 12 weeks but under 3 sessions in 56 days; 10 most recent
+  liftsLastSeen: { exercise: string; date: string }[];
+  weeks: { week_start: string; km: number; sessions: number; partial: boolean }[];
+  readiness28d: {
+    hrv: number | null;
+    rhr: number | null;
+    sleep_hours: number | null;
+    days: number;
+  } | null;
+  lastRun: string | null;
+  lastLift: string | null;
+};
+
+export async function getTrainingState(
+  athleteId: string,
+  localDate: string
+): Promise<TrainingState> {
+  const { data, error } = await supabase.rpc("get_training_state", {
+    p_athlete_id: athleteId,
+    p_today: localDate,
+  });
+
+  if (error || data == null) {
+    throw new Error(
+      `get_training_state RPC failed: ${error?.message ?? "no data returned"}`
+    );
+  }
+
+  const raw = data as Record<string, unknown>;
+  const num = (v: unknown): number | null => {
+    if (typeof v === "number") return v;
+    if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+      return Number(v);
+    }
+    return null;
+  };
+  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  const obj = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : {};
+  const arr = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? v.map(obj) : [];
+
+  const runs: TrainingState["runs"] = {};
+  for (const [type, v] of Object.entries(obj(raw.runs))) {
+    const r = obj(v);
+    const longest = r.longest ? obj(r.longest) : null;
+    const fastest = r.fastest ? obj(r.fastest) : null;
+    runs[type] = {
+      last3: arr(r.last3).map((e) => ({
+        date: str(e.date) ?? "",
+        distance_km: num(e.distance_km),
+        avg_pace: str(e.avg_pace),
+        avg_hr: num(e.avg_hr),
+      })),
+      longest: longest
+        ? { date: str(longest.date) ?? "", distance_km: num(longest.distance_km) }
+        : null,
+      fastest: fastest
+        ? { date: str(fastest.date) ?? "", avg_pace: str(fastest.avg_pace) }
+        : null,
+    };
+  }
+
+  const lifts: TrainingState["lifts"] = {};
+  for (const [name, v] of Object.entries(obj(raw.lifts))) {
+    const l = obj(v);
+    const best = l.best ? obj(l.best) : null;
+    lifts[name] = {
+      last3: arr(l.last3).map((e) => ({
+        date: str(e.date) ?? "",
+        weight_kg: num(e.weight_kg),
+        reps: num(e.reps),
+        rir: num(e.rir),
+      })),
+      best: best
+        ? {
+            date: str(best.date) ?? "",
+            weight_kg: num(best.weight_kg),
+            reps: num(best.reps),
+          }
+        : null,
+    };
+  }
+
+  const r28 = raw.readiness_28d ? obj(raw.readiness_28d) : null;
+  const r28days = r28 ? (num(r28.days) ?? 0) : 0;
+
+  return {
+    today: str(raw.today) ?? localDate,
+    runs,
+    lifts,
+    liftsLastSeen: arr(raw.lifts_last_seen)
+      .map((e) => ({ exercise: str(e.exercise) ?? "", date: str(e.date) ?? "" }))
+      .filter((e) => e.exercise !== "" && e.date !== ""),
+    weeks: arr(raw.weeks).map((w) => ({
+      week_start: str(w.week_start) ?? "",
+      km: num(w.km) ?? 0,
+      sessions: num(w.sessions) ?? 0,
+      partial: w.partial === true,
+    })),
+    readiness28d:
+      r28 && r28days > 0
+        ? {
+            hrv: num(r28.hrv),
+            rhr: num(r28.rhr),
+            sleep_hours: num(r28.sleep_hours),
+            days: r28days,
+          }
+        : null,
+    lastRun: str(raw.last_run),
+    lastLift: str(raw.last_lift),
+  };
+}
+
+/** MM-DD when within the last 12 months of `today`, else the full date. */
+function shortDate(ymd: string, today: string): string {
+  const t = Date.parse(today + "T00:00:00Z");
+  const d = Date.parse(ymd + "T00:00:00Z");
+  if (!Number.isFinite(t) || !Number.isFinite(d) || t - d > 365 * 86400000) {
+    return ymd;
+  }
+  return ymd.slice(5);
+}
+
+function fmtKm(km: number | null): string {
+  if (km === null) return "-";
+  return `${Number.isInteger(km) ? String(km) : km.toFixed(1)}k`;
+}
+
+/** "80x8@2"; bodyweight work is stored as weight 0 (or null) → "bwx12". */
+function fmtSet(s: {
+  weight_kg: number | null;
+  reps: number | null;
+  rir?: number | null;
+}): string {
+  const w = s.weight_kg === null || s.weight_kg === 0 ? "bw" : String(s.weight_kg);
+  const reps = s.reps === null ? "?" : String(s.reps);
+  const rir = s.rir === null || s.rir === undefined ? "" : `@${s.rir}`;
+  return `${w}x${reps}${rir}`;
+}
+
+/**
+ * One line per item. Dates are MM-DD (the year only when older than 12
+ * months). When the RPC failed the block says so explicitly, so absence is
+ * never read as "no data".
+ */
+export function formatTrainingState(ts: TrainingState | null): string {
+  if (!ts) {
+    return "<training_state>\nUnavailable this turn — use get_history for recent runs, sets and readiness.\n</training_state>";
+  }
+  const today = ts.today;
+  const lines: string[] = [];
+
+  const runTypes = Object.keys(ts.runs).sort();
+  if (runTypes.length > 0) {
+    // Dense numbers tokenise at under two characters per token, so labels
+    // are short and the separator is a plain comma (measured: "·" and long
+    // headers cost ~80 tokens on this block)
+    lines.push("runs (last 3: date km pace hr; 6-month longest, fastest)");
+    for (const type of runTypes) {
+      const r = ts.runs[type]!;
+      const parts = r.last3.map(
+        (e) =>
+          `${shortDate(e.date, today)} ${fmtKm(e.distance_km)} ${e.avg_pace ?? "-"} ${
+            e.avg_hr === null ? "-" : Math.round(e.avg_hr)
+          }`
+      );
+      if (r.longest) {
+        parts.push(`longest ${fmtKm(r.longest.distance_km)} ${shortDate(r.longest.date, today)}`);
+      }
+      if (r.fastest) {
+        parts.push(`fastest ${r.fastest.avg_pace ?? "-"} ${shortDate(r.fastest.date, today)}`);
+      }
+      lines.push(`${type}: ${parts.join(", ")}`);
+    }
+  } else {
+    lines.push("runs: none logged");
+  }
+
+  const liftNames = Object.keys(ts.lifts).sort();
+  if (liftNames.length > 0) {
+    lines.push("lifts (top set per session, last 3 as weightxreps@rir; all-time best)");
+    for (const name of liftNames) {
+      const l = ts.lifts[name]!;
+      const parts = l.last3.map((s) => `${shortDate(s.date, today)} ${fmtSet(s)}`);
+      if (l.best) parts.push(`best ${fmtSet(l.best)} ${shortDate(l.best.date, today)}`);
+      lines.push(`${name}: ${parts.join(", ")}`);
+    }
+  } else {
+    lines.push("lifts: none with 3+ sessions in the last 56 days");
+  }
+  if (ts.liftsLastSeen.length > 0) {
+    lines.push(
+      `other lifts (12 weeks), last seen: ${ts.liftsLastSeen
+        .map((e) => `${e.exercise} ${shortDate(e.date, today)}`)
+        .join(", ")}`
+    );
+  }
+
+  if (ts.weeks.length > 0) {
+    lines.push(
+      `weeks (Mon, km, sessions): ${ts.weeks
+        .map(
+          (w) =>
+            `${shortDate(w.week_start, today)} ${Math.round(w.km)}km ${w.sessions}${
+              w.partial ? " (partial)" : ""
+            }`
+        )
+        .join(", ")}`
+    );
+  }
+
+  const r = ts.readiness28d;
+  lines.push(
+    r
+      ? `readiness 28d median: HRV ${r.hrv ?? "-"}, RHR ${r.rhr ?? "-"}, sleep ${r.sleep_hours ?? "-"}`
+      : "readiness 28d median: no data"
+  );
+
+  lines.push(
+    `last run ${ts.lastRun ? shortDate(ts.lastRun, today) : "none"}, last lift ${
+      ts.lastLift ? shortDate(ts.lastLift, today) : "none"
+    }`
+  );
+
+  return `<training_state>\n${lines.join("\n")}\n</training_state>`;
+}
+
 function formatIndexLine(args: {
   label: string;
   count: number;
@@ -402,10 +672,13 @@ export function formatContext(
     insights: Awaited<ReturnType<typeof getTodaysInsights>>;
     contextIndex: Awaited<ReturnType<typeof getContextIndexCounts>>;
     actions: Awaited<ReturnType<typeof getTodaysActions>>;
+    // Null when the RPC failed — the block then says "unavailable"
+    trainingState: TrainingState | null;
   }
 ): FormattedContext {
   const stable: string[] = [];
   const volatile: string[] = [];
+  const trainingStateBlock = formatTrainingState(data.trainingState);
 
   stable.push(
     `<context_instructions>\nEmpty fields mean no data exists — do not assume or infer values. Daily summaries are your primary memory of recent training. The context index shows what deeper data is available — retrieve via tool call when it would improve your response.\n</context_instructions>`
@@ -453,6 +726,10 @@ export function formatContext(
     stable.push("<weekly_plan>\nNo plan committed this week\n</weekly_plan>");
   }
 
+  // Stable: it changes when a session is logged, i.e. once per session, so
+  // it costs one cache rewrite per session — the same as a plan commit
+  stable.push(trainingStateBlock);
+
   volatile.push(
     `<date>${formatDate(localDate)}${localTime ? ` ${roundDownToHalfHour(localTime)}` : ""}</date>`
   );
@@ -479,11 +756,16 @@ export function formatContext(
 
   if (data.readiness) {
     const r = data.readiness;
+    // 28-day medians from training_state, so today's numbers read against
+    // the athlete's own recent baseline
+    const med = data.trainingState?.readiness28d ?? null;
+    const medianNote = (v: number | null | undefined) =>
+      v === null || v === undefined ? "" : ` (28d median ${v})`;
     volatile.push(
       `<readiness>\n${[
         `Stored: yes (source: ${r.source})`,
-        `HRV: ${formatMetric(r.hrv)}`,
-        `RHR: ${formatMetric(r.rhr)}`,
+        `HRV: ${formatMetric(r.hrv)}${medianNote(med?.hrv)}`,
+        `RHR: ${formatMetric(r.rhr)}${medianNote(med?.rhr)}`,
         `Recovery: ${formatMetric(r.recovery_score)}`,
         `Sleep: ${formatMetric(r.sleep_hours)}`,
       ].join("\n")}\n</readiness>`
@@ -583,6 +865,7 @@ export function formatContext(
   return {
     stableBlock: stable.join("\n\n"),
     volatileBlock: volatile.join("\n\n"),
+    trainingStateBlock,
   };
 }
 
@@ -623,6 +906,7 @@ export async function buildContext(
     insightsResult,
     contextIndexResult,
     actionsResult,
+    trainingStateResult,
   ] = await Promise.allSettled([
     loadChatSystemPrompt(tab),
     getAthleteProfile(athleteId),
@@ -639,6 +923,7 @@ export async function buildContext(
       : Promise.resolve([]),
     getContextIndexCounts(athleteId),
     getTodaysActions(athleteId, localDate),
+    getTrainingState(athleteId, localDate),
   ]);
 
   const systemPrompt =
@@ -759,7 +1044,16 @@ export async function buildContext(
     );
   }
 
-  const { stableBlock, volatileBlock } = formatContext(
+  const trainingState =
+    trainingStateResult.status === "fulfilled" ? trainingStateResult.value : null;
+  if (trainingStateResult.status === "rejected") {
+    console.error(
+      "[buildContext] getTrainingState failed:",
+      trainingStateResult.reason
+    );
+  }
+
+  const { stableBlock, volatileBlock, trainingStateBlock } = formatContext(
     tab,
     localDate,
     weekStart,
@@ -776,10 +1070,11 @@ export async function buildContext(
       insights,
       contextIndex,
       actions,
+      trainingState,
     }
   );
 
   const fullSystemPrompt = `${systemPrompt}\n\n<persistent_context>\n${stableBlock}\n</persistent_context>`;
 
-  return { systemPrompt: fullSystemPrompt, volatileBlock };
+  return { systemPrompt: fullSystemPrompt, volatileBlock, trainingStateBlock };
 }

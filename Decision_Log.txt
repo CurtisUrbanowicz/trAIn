@@ -420,6 +420,11 @@ On Opus 5.5 the opener's text lands in one burst at the end, and the loading scr
 Reflection drifted back to coaching the coach on 5.5, so both prompts drop the "how they're coached" invitation and carry the April line. Insight cards are written to the athlete as "you"; summaries use the profile's pronouns, falling back to "they" — architected for more than one athlete.
 Rejected: pre-writing the opener in the morning run (loses awareness of when the athlete actually opens the app).
 
+training_state — computed intermediate layer
+Decided: 2026-10-06.
+The brain anchored on the last three daily summaries: with nothing between raw tables and prose, "recent" meant three days, and anything older needed a tool call it rarely made. Every tab's context now carries a <training_state> block computed in SQL by get_training_state(athlete, today): per run type the last three runs plus the six-month longest and fastest; per lift with three or more sessions in 56 days the last three top sets and the all-time best, other lifts from the last 12 weeks as last-seen dates (ten most recent); six Monday-start weeks of km and sessions; 28-day readiness medians, also shown beside today's HRV and RHR. No model call, no new table, one RPC in the parallel load. It lives in the stable block: logs land once per session, so it costs one cache rewrite per session, like a plan commit. The client's local date is the clock.
+Rejected: a model-written digest (another artefact to go stale), a materialised table (write-side work for a one-query read), the volatile block (it changes per session, not per turn).
+
 
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.

@@ -145,7 +145,7 @@ export async function POST(request: Request) {
     }
 
     const contextStart = Date.now();
-    const { systemPrompt, volatileBlock } = await buildContext(
+    const { systemPrompt, volatileBlock, trainingStateBlock } = await buildContext(
       ATHLETE_ID,
       tab,
       localDate,
@@ -153,7 +153,11 @@ export async function POST(request: Request) {
     );
     const contextMs = Date.now() - contextStart;
 
-    pushLog("context_loaded", { tab, contextBlockLength: volatileBlock.length });
+    pushLog("context_loaded", {
+      tab,
+      contextBlockLength: volatileBlock.length,
+      trainingStateLength: trainingStateBlock.length,
+    });
 
     const messagesForApi: Anthropic.MessageParam[] =
       message.trim() === ""
