@@ -681,7 +681,7 @@ export function formatContext(
   const trainingStateBlock = formatTrainingState(data.trainingState);
 
   stable.push(
-    `<context_instructions>\nEmpty fields mean no data exists — do not assume or infer values. Daily summaries are your primary memory of recent training. The context index shows what deeper data is available — retrieve via tool call when it would improve your response.\n</context_instructions>`
+    `<context_instructions>\nEmpty fields mean no data exists — do not assume or infer values. Daily summaries are your primary memory of recent training. The training_state block is exact and current — answer from it directly, and use get_history only for detail it doesn't hold or anything older than its windows. The context index shows what deeper data is available — retrieve via tool call when it would improve your response.\n</context_instructions>`
   );
 
   stable.push(

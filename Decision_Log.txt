@@ -425,6 +425,11 @@ Decided: 2026-10-06.
 The brain anchored on the last three daily summaries: with nothing between raw tables and prose, "recent" meant three days, and anything older needed a tool call it rarely made. Every tab's context now carries a <training_state> block computed in SQL by get_training_state(athlete, today): per run type the last three runs plus the six-month longest and fastest; per lift with three or more sessions in 56 days the last three top sets and the all-time best, other lifts from the last 12 weeks as last-seen dates (ten most recent); six Monday-start weeks of km and sessions; 28-day readiness medians, also shown beside today's HRV and RHR. No model call, no new table, one RPC in the parallel load. It lives in the stable block: logs land once per session, so it costs one cache rewrite per session, like a plan commit. The client's local date is the clock.
 Rejected: a model-written digest (another artefact to go stale), a materialised table (write-side work for a one-query read), the volatile block (it changes per session, not per turn).
 
+training_state declared authoritative in context_instructions
+Decided: 2026-10-06.
+The brain read training_state correctly but verified it with get_history every time — three for three on Coach, including a last-squat date the block states outright. Two causes: context_instructions never mentioned the block, and coach.md opened with "Read across the full history before responding." context_instructions now says the block is exact and current, answer from it, and get_history is for detail it doesn't hold or dates beyond its windows; Coach reads what's in context first and goes to history when the question outgrows it. Prompt text only; reflection contexts get the block in Prompt 2.
+Rejected: a hard "no tools for these questions" rule (the block's coverage will change).
+
 
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.
