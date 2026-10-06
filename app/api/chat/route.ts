@@ -6,7 +6,8 @@ import { buildContext, type TabType } from "@/lib/context";
 import { supabase } from "@/lib/supabase";
 import { getToolsForTab } from "@/lib/tools";
 import { executeTool, type ToolContext } from "@/lib/tool-executor";
-import { pushLog } from "@/lib/debugLog";
+import { pushLog, pushLogAsync } from "@/lib/debugLog";
+import { countTextTokens } from "@/lib/token-count";
 import { describeToolCall } from "@/lib/tool-status";
 import { claimOpener, releaseOpener, type OpenerClaim } from "@/lib/openerClaim";
 import {
@@ -153,11 +154,31 @@ export async function POST(request: Request) {
     );
     const contextMs = Date.now() - contextStart;
 
-    pushLog("context_loaded", {
-      tab,
-      contextBlockLength: volatileBlock.length,
-      trainingStateLength: trainingStateBlock.length,
-    });
+    const anthropic = new Anthropic();
+
+    // context_loaded carries character lengths and real token sizes per
+    // tab. The counts come from the count-tokens API (free, ~300ms each),
+    // so they run off the request path and the entry is written once they
+    // are in; a failed count logs as null, never delays the turn.
+    waitUntil(
+      (async () => {
+        const [systemPromptTokens, contextBlockTokens, trainingStateTokens] =
+          await Promise.all([
+            countTextTokens(anthropic, systemPrompt),
+            countTextTokens(anthropic, volatileBlock),
+            countTextTokens(anthropic, trainingStateBlock),
+          ]);
+        await pushLogAsync("context_loaded", {
+          tab,
+          contextBlockLength: volatileBlock.length,
+          trainingStateLength: trainingStateBlock.length,
+          systemPromptLength: systemPrompt.length,
+          contextBlockTokens,
+          trainingStateTokens,
+          systemPromptTokens,
+        });
+      })()
+    );
 
     const messagesForApi: Anthropic.MessageParam[] =
       message.trim() === ""
@@ -195,7 +216,6 @@ export async function POST(request: Request) {
       }
     }
 
-    const anthropic = new Anthropic();
     const toolContext: ToolContext = { athleteId: ATHLETE_ID, localDate, localTime };
 
     // Model selection: try Opus, retry once on overloaded, then fall back
