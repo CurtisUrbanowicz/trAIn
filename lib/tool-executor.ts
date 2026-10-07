@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { getWeekStartMondayUtc } from "./context";
 import { pushLog } from "./debugLog";
 import { MUTATING_TOOLS } from "./tools";
+import { checkProfileWrite } from "./profile";
 
 export type ToolContext = {
   athleteId: string;
@@ -342,30 +343,34 @@ async function logReadiness(
   return `Logged readiness for ${date}: ${parts.join(", ")}`;
 }
 
+// Enforced here, not only in the tool description: every write keeps the four
+// headings and every Injury history line of the current version. A rejection
+// starts with "Error" so the model sees why and can retry, and no action row
+// is recorded.
 async function updateAthleteProfile(
   input: Record<string, unknown>,
   context: ToolContext
 ): Promise<string> {
+  const content = typeof input.content === "string" ? input.content : "";
+  const { data: current, error: loadError } = await supabase
+    .from("athlete_profile")
+    .select("content")
+    .eq("athlete_id", context.athleteId)
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (loadError) return `Error loading current athlete profile: ${loadError.message}`;
+
+  const rejection = checkProfileWrite(current?.content ?? null, content);
+  if (rejection) return `Error: profile not written — ${rejection}`;
+
   const { error } = await supabase.from("athlete_profile").insert({
     athlete_id: context.athleteId,
-    content: input.content as string,
+    content,
     timestamp: new Date().toISOString(),
   });
   if (error) return `Error updating athlete profile: ${error.message}`;
   return "Athlete profile updated.";
-}
-
-async function updateUserPreferences(
-  input: Record<string, unknown>,
-  context: ToolContext
-): Promise<string> {
-  const { error } = await supabase.from("user_preferences").insert({
-    athlete_id: context.athleteId,
-    content: input.content as string,
-    timestamp: new Date().toISOString(),
-  });
-  if (error) return `Error updating user preferences: ${error.message}`;
-  return "User preferences updated.";
 }
 
 async function createMesocycle(
@@ -648,8 +653,6 @@ export async function executeTool(
       result = await logReadiness(input, context); break;
     case "update_athlete_profile":
       result = await updateAthleteProfile(input, context); break;
-    case "update_user_preferences":
-      result = await updateUserPreferences(input, context); break;
     case "create_mesocycle":
       result = await createMesocycle(input, context); break;
     case "delete_log_entry":

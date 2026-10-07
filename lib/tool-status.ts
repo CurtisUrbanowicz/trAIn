@@ -22,7 +22,6 @@ const TOOL_STATUS: Record<string, string> = {
   commit_weekly_plan: "saving the week's plan…",
   create_mesocycle: "setting up the training block…",
   update_athlete_profile: "updating your profile…",
-  update_user_preferences: "updating your preferences…",
   update_log_entry: "correcting that entry…",
   delete_log_entry: "removing that entry…",
   days_between: "counting days…",

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { getLocalDate } from "@/lib/dates";
+import { dateToYmd, getLocalDate } from "@/lib/dates";
+import { changedProfileHeadings } from "@/lib/profile";
 import ChatView from "@/app/components/ChatView";
 
 const ATHLETE_ID = "bc1c4cd0-a69a-4317-9b46-f7072d3bd886";
@@ -31,9 +32,44 @@ const initialCard: ReflectionCard = {
   error: null,
 };
 
+// The newest profile row the banner has been shown for, per browser
+const PROFILE_SEEN_KEY = "coach.profileBannerSeen";
+
+/**
+ * "Profile updated this morning — <first changed heading>" when the newest
+ * athlete_profile row is dated today and this browser hasn't shown it yet.
+ * Null otherwise. The previous version is restored by deleting the row.
+ */
+async function loadProfileBanner(localDate: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("athlete_profile")
+    .select("id, content, timestamp")
+    .eq("athlete_id", ATHLETE_ID)
+    .order("timestamp", { ascending: false })
+    .limit(2);
+  const [latest, previous] = (data ?? []) as Array<{
+    id: string;
+    content: string;
+    timestamp: string;
+  }>;
+  if (!latest || !previous) return null;
+  if (dateToYmd(new Date(latest.timestamp)) !== localDate) return null;
+  try {
+    if (localStorage.getItem(PROFILE_SEEN_KEY) === latest.id) return null;
+    localStorage.setItem(PROFILE_SEEN_KEY, latest.id);
+  } catch {
+    // Storage unavailable: show it every open today
+  }
+  const heading = changedProfileHeadings(previous.content, latest.content)[0];
+  return heading
+    ? `Profile updated this morning — ${heading}.`
+    : "Profile updated this morning.";
+}
+
 export default function CoachPage() {
   const [pulseCard, setPulseCard] = useState<ReflectionCard>(initialCard);
   const [deepCard, setDeepCard] = useState<ReflectionCard>(initialCard);
+  const [profileBanner, setProfileBanner] = useState<string | null>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -41,6 +77,8 @@ export default function CoachPage() {
     startedRef.current = true;
 
     const localDate = getLocalDate();
+
+    void loadProfileBanner(localDate).then(setProfileBanner, () => {});
 
     const setCard = (
       type: ReflectionType,
@@ -209,6 +247,18 @@ export default function CoachPage() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <ChatView tab="coach" autoOpen={false}>
+        {profileBanner && (
+          <p
+            className="pb-3"
+            style={{
+              fontSize: 13,
+              color: "var(--text-muted)",
+              fontFamily: "var(--font-inter)",
+            }}
+          >
+            {profileBanner}
+          </p>
+        )}
         <div className="flex flex-col gap-3 pb-4 md:flex-row">
           <ReflectionCardView label="Pulse" card={pulseCard} />
           <ReflectionCardView label="Deep" card={deepCard} />

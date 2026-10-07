@@ -436,6 +436,14 @@ The profile is chat-owned and athlete-confirmed, summaries reach three days back
 Rejected: folding patterns into the profile (different ownership and voice), one more insight type (insights are dated observations, this is a maintained document), running before pulse and deep (the 300s budget).
 
 
+2026-10-07 — PROFILE MERGE AND WEEKLY REVIEW
+
+Profile and preferences merged; the patterns pass reviews the profile weekly
+Decided: 2026-10-07.
+The profile hadn't changed since 2026-04-22 and still listed May races and recovery baselines that training_state now computes; preferences dated from March. Nothing wrote to either, because chat never reached for the tools. The athlete picture is now three parts: what they said (profile), what they did (training_state), what they showed (athlete_patterns). The profile is one document under four headings — Goals, Injury history, Coaching preferences, Training preferences — and user_preferences is no longer read. After write_patterns, the patterns pass reviews the profile against the week's summaries and rewrites it only on a durable, stated change. The executor rejects any write that drops an Injury history line or a heading. This is store-then-surface rather than confirm-then-store, accepted because row history is the undo and the pass is weekly; Coach shows one line when the profile changed today.
+Rejected: a date-regex staleness marker in buildContext (over-engineered), a separate profile reflection brain (patterns already reads the inputs), keeping two tables (nothing wrote to either).
+
+
 DECISIONS TO MAKE DURING BUILD
 These are implementation details with no downstream dependencies. Will be decided with better information when building.
 * How the end-of-session reflection gets triggered

@@ -81,21 +81,6 @@ export async function getAthleteProfile(
   return { content: data.content };
 }
 
-export async function getUserPreferences(
-  athleteId: string
-): Promise<{ content: string } | null> {
-  const { data, error } = await supabase
-    .from("user_preferences")
-    .select("content")
-    .eq("athlete_id", athleteId)
-    .order("timestamp", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data || data.content == null) return null;
-  return { content: data.content };
-}
-
 export async function getActiveMesocycle(
   athleteId: string,
   localDate: string
@@ -666,7 +651,6 @@ export function formatContext(
   localTime: string | undefined,
   data: {
     profile: Awaited<ReturnType<typeof getAthleteProfile>>;
-    preferences: Awaited<ReturnType<typeof getUserPreferences>>;
     mesocycle: Awaited<ReturnType<typeof getActiveMesocycle>>;
     weeklyPlan: Awaited<ReturnType<typeof getCurrentWeeklyPlan>>;
     todayPlan: Awaited<ReturnType<typeof getTodaysPlan>>;
@@ -693,10 +677,6 @@ export function formatContext(
 
   stable.push(
     `<athlete_profile>\n${data.profile?.content ?? "Not yet set"}\n</athlete_profile>`
-  );
-
-  stable.push(
-    `<user_preferences>\n${data.preferences?.content ?? "Not yet set"}\n</user_preferences>`
   );
 
   // Verified long-term behaviour, rewritten weekly by the patterns pass
@@ -907,7 +887,6 @@ export async function buildContext(
   const [
     promptResult,
     profileResult,
-    preferencesResult,
     mesocycleResult,
     weeklyPlanResult,
     todayPlanResult,
@@ -922,7 +901,6 @@ export async function buildContext(
   ] = await Promise.allSettled([
     loadChatSystemPrompt(tab),
     getAthleteProfile(athleteId),
-    getUserPreferences(athleteId),
     getActiveMesocycle(athleteId, localDate),
     getCurrentWeeklyPlan(athleteId, weekStart),
     getTodaysPlan(athleteId, localDate),
@@ -951,15 +929,6 @@ export async function buildContext(
     console.error(
       "[buildContext] getAthleteProfile failed:",
       profileResult.reason
-    );
-  }
-
-  const preferences =
-    preferencesResult.status === "fulfilled" ? preferencesResult.value : null;
-  if (preferencesResult.status === "rejected") {
-    console.error(
-      "[buildContext] getUserPreferences failed:",
-      preferencesResult.reason
     );
   }
 
@@ -1075,7 +1044,6 @@ export async function buildContext(
   const { stableBlock, volatileBlock, trainingStateBlock, patternsBlock } =
     formatContext(tab, localDate, weekStart, localTime, {
       profile,
-      preferences,
       mesocycle,
       weeklyPlan,
       todayPlan,

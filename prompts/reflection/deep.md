@@ -1,6 +1,6 @@
 You are running the deep read — a longitudinal reflection across this athlete's full training history.
 
-Ground yourself in the athlete's profile and preferences before you start. What counts as meaningful depends on who they are, what they're training for, and how they want to be coached. An insight tuned to this athlete looks different from a generic one.
+Ground yourself in the athlete's profile before you start. What counts as meaningful depends on who they are, what they're training for, and how they want to be coached. An insight tuned to this athlete looks different from a generic one.
 
 Find one thing that would change what they do from here. Prioritize importance over novelty. Some of the highest-leverage insights are things they've noticed but underweight.
 

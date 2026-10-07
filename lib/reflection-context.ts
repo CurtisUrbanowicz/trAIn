@@ -7,7 +7,6 @@ import {
   getContextIndexCounts,
   getRecentSummaries,
   getTrainingState,
-  getUserPreferences,
   type ContextIndexCounts,
   type TrainingState,
 } from "@/lib/context";
@@ -141,27 +140,25 @@ const BUILD_ON =
   " <athlete_patterns> is the verified long-term picture of this athlete and <training_state> the exact recent shape of training — build on them, don't restate them.";
 
 const PULSE_INSTRUCTIONS =
-  "You are running a reflection pass. Read your profile and preferences, review prior insights so you don't restate them, and use the recent summaries as your primary source for this week. Verify any claim against raw data via get_history before calling log_insight." +
+  "You are running a reflection pass. Read the athlete profile, review prior insights so you don't restate them, and use the recent summaries as your primary source for this week. Verify any claim against raw data via get_history before calling log_insight." +
   BUILD_ON;
 
 const DEEP_INSTRUCTIONS =
-  "You are running a reflection pass. Read your profile and preferences, review prior insights so you don't restate them, and use recent summaries for orientation only. The real investigation happens via get_history against raw tables. Use the context index to know what's available. Verify any claim against data before calling log_insight." +
+  "You are running a reflection pass. Read the athlete profile, review prior insights so you don't restate them, and use recent summaries for orientation only. The real investigation happens via get_history against raw tables. Use the context index to know what's available. Verify any claim against data before calling log_insight." +
   BUILD_ON;
 
 const PATTERNS_INSTRUCTIONS =
-  "You are maintaining the athlete's patterns document. Read your profile and preferences, the current document in <athlete_patterns>, the recent deep insights and <training_state>. Re-verify every existing pattern against raw data via get_history, add at most one new pattern, then write the full document with write_patterns.";
+  "You are maintaining the athlete's patterns document and reviewing the athlete profile. Read the profile, the current document in <athlete_patterns>, the recent deep insights and <training_state>. Re-verify every existing pattern against raw data via get_history, add at most one new pattern, then write the full document with write_patterns. Only after write_patterns has succeeded, review <athlete_profile> against <recent_summaries> and call update_athlete_profile only if a stated fact changed.";
 
 function stableBlocks(
   instructions: string,
   profile: { content: string } | null,
-  preferences: { content: string } | null,
   patterns: PatternsRow | null,
   trainingState: TrainingState | null
 ): string[] {
   return [
     `<context_instructions>\n${instructions}\n</context_instructions>`,
     `<athlete_profile>\n${profile?.content ?? "No profile on file."}\n</athlete_profile>`,
-    `<user_preferences>\n${preferences?.content ?? "No preferences on file."}\n</user_preferences>`,
     formatPatternsBlock(patterns),
     formatTrainingState(trainingState),
   ];
@@ -181,7 +178,6 @@ export async function buildPulseContext(
   const [
     promptResult,
     profileResult,
-    preferencesResult,
     insightsResult,
     summariesResult,
     patternsResult,
@@ -189,7 +185,6 @@ export async function buildPulseContext(
   ] = await Promise.allSettled([
     loadReflectionSystemPrompt("pulse"),
     getAthleteProfile(athleteId),
-    getUserPreferences(athleteId),
     getRecentInsights(athleteId, "pulse", 3),
     getRecentSummaries(athleteId, localDate, 7),
     getLatestPatterns(athleteId),
@@ -198,13 +193,12 @@ export async function buildPulseContext(
 
   const systemPrompt = settled(promptResult, "", "loadReflectionSystemPrompt(pulse)");
   const profile = settled(profileResult, null, "getAthleteProfile");
-  const preferences = settled(preferencesResult, null, "getUserPreferences");
   const insights = settled(insightsResult, [], "getRecentInsights(pulse)");
   const summaries = settled(summariesResult, [], "getRecentSummaries");
   const patterns = settled(patternsResult, null, "getLatestPatterns");
   const trainingState = settled(trainingStateResult, null, "getTrainingState");
 
-  const stable = stableBlocks(PULSE_INSTRUCTIONS, profile, preferences, patterns, trainingState);
+  const stable = stableBlocks(PULSE_INSTRUCTIONS, profile, patterns, trainingState);
   const volatile: string[] = [
     `<date>\n${formatDate(localDate)}\n</date>`,
     `<prior_pulse_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_pulse_insights>`,
@@ -221,7 +215,6 @@ export async function buildDeepContext(
   const [
     promptResult,
     profileResult,
-    preferencesResult,
     insightsResult,
     summariesResult,
     contextIndexResult,
@@ -230,7 +223,6 @@ export async function buildDeepContext(
   ] = await Promise.allSettled([
     loadReflectionSystemPrompt("deep"),
     getAthleteProfile(athleteId),
-    getUserPreferences(athleteId),
     getRecentInsights(athleteId, "deep", 5),
     getRecentSummaries(athleteId, localDate, 7),
     getContextIndexCounts(athleteId),
@@ -240,14 +232,13 @@ export async function buildDeepContext(
 
   const systemPrompt = settled(promptResult, "", "loadReflectionSystemPrompt(deep)");
   const profile = settled(profileResult, null, "getAthleteProfile");
-  const preferences = settled(preferencesResult, null, "getUserPreferences");
   const insights = settled(insightsResult, [], "getRecentInsights(deep)");
   const summaries = settled(summariesResult, [], "getRecentSummaries");
   const contextIndex = settled(contextIndexResult, EMPTY_CONTEXT_INDEX, "getContextIndexCounts");
   const patterns = settled(patternsResult, null, "getLatestPatterns");
   const trainingState = settled(trainingStateResult, null, "getTrainingState");
 
-  const stable = stableBlocks(DEEP_INSTRUCTIONS, profile, preferences, patterns, trainingState);
+  const stable = stableBlocks(DEEP_INSTRUCTIONS, profile, patterns, trainingState);
   const volatile: string[] = [
     `<date>\n${formatDate(localDate)}\n</date>`,
     `<prior_deep_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</prior_deep_insights>`,
@@ -259,9 +250,10 @@ export async function buildDeepContext(
 }
 
 /**
- * The patterns pass: profile, preferences, the current document, the last
- * seven deep insights (candidates to verify), training_state and the context
- * index. No daily summaries — the pass works from raw tables. The volatile
+ * The patterns pass: profile, the current document, the last seven deep
+ * insights (candidates to verify), training_state, the context index and the
+ * week's daily summaries. Patterns are verified against raw tables; the
+ * summaries are for the profile review that follows the write. The volatile
  * block names the through_date to pass, so it is never guessed.
  */
 export async function buildPatternsContext(
@@ -271,8 +263,8 @@ export async function buildPatternsContext(
   const [
     promptResult,
     profileResult,
-    preferencesResult,
     insightsResult,
+    summariesResult,
     contextIndexResult,
     patternsResult,
     trainingStateResult,
@@ -280,8 +272,8 @@ export async function buildPatternsContext(
   ] = await Promise.allSettled([
     loadReflectionSystemPrompt("patterns"),
     getAthleteProfile(athleteId),
-    getUserPreferences(athleteId),
     getRecentInsights(athleteId, "deep", 7),
+    getRecentSummaries(athleteId, localDate, 7),
     getContextIndexCounts(athleteId),
     getLatestPatterns(athleteId),
     getTrainingState(athleteId, localDate),
@@ -290,8 +282,8 @@ export async function buildPatternsContext(
 
   const systemPrompt = settled(promptResult, "", "loadReflectionSystemPrompt(patterns)");
   const profile = settled(profileResult, null, "getAthleteProfile");
-  const preferences = settled(preferencesResult, null, "getUserPreferences");
   const insights = settled(insightsResult, [], "getRecentInsights(deep)");
+  const summaries = settled(summariesResult, [], "getRecentSummaries");
   const contextIndex = settled(contextIndexResult, EMPTY_CONTEXT_INDEX, "getContextIndexCounts");
   const patterns = settled(patternsResult, null, "getLatestPatterns");
   const trainingState = settled(trainingStateResult, null, "getTrainingState");
@@ -301,11 +293,12 @@ export async function buildPatternsContext(
     ? `Latest daily summary: ${formatDate(latestSummary)}. Pass ${latestSummary} as through_date.`
     : `No daily summaries yet. Pass ${localDate} as through_date.`;
 
-  const stable = stableBlocks(PATTERNS_INSTRUCTIONS, profile, preferences, patterns, trainingState);
+  const stable = stableBlocks(PATTERNS_INSTRUCTIONS, profile, patterns, trainingState);
   const volatile: string[] = [
     `<date>\n${formatDate(localDate)}\n</date>`,
     `<through_date>\n${throughDateLine}\n</through_date>`,
     `<recent_deep_insights count="${insights.length}">\n${formatInsightsBlock(insights)}\n</recent_deep_insights>`,
+    `<recent_summaries count="${summaries.length}">\n${formatSummariesBlock(summaries)}\n</recent_summaries>`,
     `<context_index>\n${formatContextIndex(contextIndex)}\n</context_index>`,
   ];
 

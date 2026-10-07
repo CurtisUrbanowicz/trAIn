@@ -254,28 +254,13 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "update_athlete_profile",
     description:
-      "Write a new version of the athlete profile. Only call after the observe-surface-confirm loop — the athlete must have seen and confirmed the update. The profile loads on every request — only include information that actively changes coaching decisions right now. This means: current goals, active injury constraints, recovery baselines, persistent training tendencies, and key current patterns. Dated observations, resolved injuries, and one-off incidents belong in daily summaries, not the profile — they can be retrieved via get_history when relevant. When updating, prune observations that are outdated, resolved, or superseded. Consolidate rather than append. Aim for under 200 words. Previous versions preserved as history. All dates use YYYY-MM-DD format.",
+      "Write a new version of the athlete profile — what the athlete has said, not what they have done (training_state) or shown (athlete_patterns). In chat, only call after the observe-surface-confirm loop — the athlete must have seen and confirmed the update. Write the full profile under exactly four headings, each on its own line: Goals:, Injury history:, Coaching preferences:, Training preferences:. Stated facts only: current goals as the athlete set them (remove completed or dated-out goals rather than marking them done), injuries they reported, how they want to be coached and to train. No recovery baselines and no numbers that training_state holds (paces, loads, HRV, RHR, volumes). Nothing that would be false in three months — illness, travel and one-off weeks belong in daily summaries. Never remove a line from Injury history; the write is rejected if one is missing. Under 200 words. Previous versions are kept as history. All dates use YYYY-MM-DD format.",
     input_schema: {
       type: "object",
       properties: {
         content: {
           type: "string",
           description: "Full updated athlete profile in natural language",
-        },
-      },
-      required: ["content"],
-    },
-  },
-  {
-    name: "update_user_preferences",
-    description:
-      "Write a new version of user preferences. Only call after the observe-surface-confirm loop. Capture how this athlete prefers to be coached: communication style, depth, tone, coaching approach, and planning preferences. When updating, consolidate related preferences — if a new preference refines or replaces an existing one, keep only the stronger version. Aim for under 150 words. Previous versions preserved as history. All dates use YYYY-MM-DD format.",
-    input_schema: {
-      type: "object",
-      properties: {
-        content: {
-          type: "string",
-          description: "Full updated user preferences in natural language",
         },
       },
       required: ["content"],
@@ -446,7 +431,6 @@ export const MUTATING_TOOLS = new Set<string>([
   "commit_weekly_plan",
   "create_mesocycle",
   "update_athlete_profile",
-  "update_user_preferences",
   "delete_log_entry",
   "update_log_entry",
 ]);

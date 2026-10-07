@@ -47,6 +47,16 @@ const GUARD_MESSAGE: Record<ReflectionType, string> = {
     "Two rounds left. Call write_patterns now with the document as verified so far.",
 };
 
+// The patterns pass also reviews the athlete profile, strictly after
+// write_patterns has succeeded
+const PROFILE_TOOL = "update_athlete_profile";
+
+const PROFILE_BEFORE_PATTERNS =
+  "Error: profile not written — write the patterns document with write_patterns first, then review the profile.";
+
+const PROFILE_REVIEW_HANDOFF =
+  "Patterns document written. Now the profile review: check <athlete_profile> against <recent_summaries> as the Profile review section describes. Call update_athlete_profile only if a stated fact changed; otherwise end your turn without a tool call.";
+
 export type InsightRow = {
   id: string;
   type: string;
@@ -56,16 +66,29 @@ export type InsightRow = {
   date?: string;
 };
 
+// The patterns pass's weekly profile review: not called, written, or called
+// and every attempt rejected by the executor
+export type ProfileReviewOutcome = "unchanged" | "written" | "rejected";
+
 export type ReflectionResult =
   | {
       // pulse and deep: the insight row; patterns: null
       insight: InsightRow | null;
       // patterns: the document row; pulse and deep: undefined
       patterns?: PatternsRow | null;
+      // patterns, when the pass ran (not cached); pulse and deep: undefined
+      profile?: ProfileReviewOutcome;
       iterations: number;
       cached: boolean;
     }
-  | { error: string; iterations?: number };
+  | { error: string; iterations?: number; profile?: ProfileReviewOutcome };
+
+export type ReflectionOptions = {
+  // Skip the idempotency check and run the pass anyway. For dry runs on past
+  // dates from a dev script only — no route or the morning chain's webhook
+  // path sets it.
+  force?: boolean;
+};
 
 export async function getExistingInsight(
   athleteId: string,
@@ -105,6 +128,13 @@ function summariseToolInput(name: string, input: Record<string, unknown>): strin
         : 0;
     return `through_date=${input.through_date ?? "?"}, ${words} words`;
   }
+  if (name === "update_athlete_profile") {
+    const words =
+      typeof input.content === "string"
+        ? input.content.trim().split(/\s+/).length
+        : 0;
+    return `${words} words`;
+  }
   return "";
 }
 
@@ -136,16 +166,31 @@ export async function runReflection(
   athleteId: string,
   localDate: string,
   type: ReflectionType,
-  onText?: (text: string) => void
+  onText?: (text: string) => void,
+  options: ReflectionOptions = {}
 ): Promise<ReflectionResult> {
   const emit = (text: string) => {
     if (onText) onText(text);
   };
   let iterations = 0;
   const outputTool = OUTPUT_TOOL[type];
+  // Patterns only: the profile review after the document is written
+  const reviewsProfile = type === "patterns";
+  let profileAttempted = false;
+  let profileWritten = false;
+  const profileOutcome = (): ProfileReviewOutcome | undefined =>
+    !reviewsProfile
+      ? undefined
+      : profileWritten
+        ? "written"
+        : profileAttempted
+          ? "rejected"
+          : "unchanged";
 
   try {
-    if (type === "patterns") {
+    if (options.force) {
+      // Dry run: no idempotency check
+    } else if (type === "patterns") {
       const { current, latest } = await isPatternsCurrent(athleteId, localDate);
       if (current) {
         return { insight: null, patterns: latest, iterations: 0, cached: true };
@@ -174,7 +219,12 @@ export async function runReflection(
     pushLog("model_used", { model: MODEL, type });
 
     const reflectionTools = tools
-      .filter((t) => t.name === "get_history" || t.name === outputTool)
+      .filter(
+        (t) =>
+          t.name === "get_history" ||
+          t.name === outputTool ||
+          (reviewsProfile && t.name === PROFILE_TOOL)
+      )
       .map((t, i, arr) =>
         i === arr.length - 1
           ? { ...t, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
@@ -300,34 +350,65 @@ export async function runReflection(
         emit(`\n→ ${block.name}(${summary})\n`);
       }
 
-      const results = await Promise.all(
-        toolUses.map((block) =>
-          safeExecuteTool(
+      // Profile calls wait for the rest of the round, so a write_patterns in
+      // the same response lands first; before any successful write_patterns
+      // they are refused — the document always comes before the review.
+      const outputWasWritten = outputWritten;
+      const results: string[] = new Array(toolUses.length);
+      await Promise.all(
+        toolUses.map(async (block, idx) => {
+          if (block.name === PROFILE_TOOL) return;
+          results[idx] = await safeExecuteTool(
             block.name,
             block.input as Record<string, unknown>,
             toolContext
-          )
-        )
+          );
+          if (block.name === outputTool && !results[idx]!.startsWith("Error")) {
+            outputWritten = true;
+          }
+        })
       );
-
-      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-      toolUses.forEach((block, idx) => {
-        const result = results[idx]!;
-
-        if (block.name === outputTool && !result.startsWith("Error")) {
-          outputWritten = true;
+      let profileRanThisRound = false;
+      for (let idx = 0; idx < toolUses.length; idx++) {
+        const block = toolUses[idx]!;
+        if (block.name !== PROFILE_TOOL) continue;
+        if (!outputWritten) {
+          results[idx] = PROFILE_BEFORE_PATTERNS;
+          continue;
         }
+        profileAttempted = true;
+        profileRanThisRound = true;
+        results[idx] = await safeExecuteTool(
+          block.name,
+          block.input as Record<string, unknown>,
+          toolContext
+        );
+        if (!results[idx]!.startsWith("Error")) profileWritten = true;
+      }
 
-        toolResults.push({
+      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = toolUses.map(
+        (block, idx) => ({
           type: "tool_result",
           tool_use_id: block.id,
-          content: result,
-        });
-      });
+          content: results[idx]!,
+        })
+      );
 
       appendToolResultsWithCache(apiMessages, toolResults);
 
-      if (outputWritten) break;
+      if (outputWritten && !reviewsProfile) break;
+      // The document just landed: hand over to the profile review, unless
+      // the model already reviewed it in the same round
+      if (outputWritten && !outputWasWritten && !profileRanThisRound) {
+        const last = apiMessages[apiMessages.length - 1];
+        if (last?.role === "user" && Array.isArray(last.content)) {
+          (last.content as Anthropic.Messages.ContentBlockParam[]).push({
+            type: "text",
+            text: PROFILE_REVIEW_HANDOFF,
+          });
+        }
+      }
+      if (profileWritten) break;
     }
 
     if (lastUsage) {
@@ -348,7 +429,13 @@ export async function runReflection(
     if (outputWritten) {
       if (type === "patterns") {
         const row = await getLatestPatterns(athleteId);
-        return { insight: null, patterns: row, iterations, cached: false };
+        return {
+          insight: null,
+          patterns: row,
+          profile: profileOutcome(),
+          iterations,
+          cached: false,
+        };
       }
 
       const { data: row } = await supabase
@@ -374,11 +461,12 @@ export async function runReflection(
     return {
       error: type === "patterns" ? "no_patterns_written" : "no_insight_logged",
       iterations,
+      profile: profileOutcome(),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     pushLog("error", { message, type });
     console.error(`[reflect] ${type} pass failed:`, message);
-    return { error: message, iterations };
+    return { error: message, iterations, profile: profileOutcome() };
   }
 }
