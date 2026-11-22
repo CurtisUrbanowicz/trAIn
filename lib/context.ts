@@ -255,22 +255,52 @@ export async function getTodaysActions(
 export async function getTodaysInsights(
   athleteId: string,
   localDate: string
-): Promise<{ id: string; type: string; content: string; significance: number }[]> {
-  const { data, error } = await supabase
-    .from("insights")
-    .select("id, type, content, significance")
-    .eq("athlete_id", athleteId)
-    .eq("date", localDate);
+): Promise<
+  { id: string; type: string; content: string; significance: number; date: string }[]
+> {
+  // Today's insights, except deep: deep runs weekly, so the current one is
+  // the latest within the last 7 days (DEEP_CADENCE_DAYS in lib/reflect.ts)
+  const [y, mo, d] = localDate.split("-").map(Number);
+  const windowStart = new Date(Date.UTC(y!, mo! - 1, d! - 7))
+    .toISOString()
+    .slice(0, 10);
+  const [todayResult, deepResult] = await Promise.all([
+    supabase
+      .from("insights")
+      .select("id, type, content, significance, date")
+      .eq("athlete_id", athleteId)
+      .eq("date", localDate)
+      .neq("type", "deep"),
+    supabase
+      .from("insights")
+      .select("id, type, content, significance, date")
+      .eq("athlete_id", athleteId)
+      .eq("type", "deep")
+      .gt("date", windowStart)
+      .lte("date", localDate)
+      .order("date", { ascending: false })
+      .limit(1),
+  ]);
 
-  if (error || !data) return [];
+  if (todayResult.error || !todayResult.data) return [];
+  const rows = [...todayResult.data, ...(deepResult.data ?? [])];
   const order = (t: string) => (t === "pulse" ? 0 : t === "deep" ? 1 : 2);
-  return data
-    .map((row: { id: string; type: string; content: string; significance: number }) => ({
-      id: row.id,
-      type: row.type,
-      content: row.content,
-      significance: row.significance,
-    }))
+  return rows
+    .map(
+      (row: {
+        id: string;
+        type: string;
+        content: string;
+        significance: number;
+        date: string;
+      }) => ({
+        id: row.id,
+        type: row.type,
+        content: row.content,
+        significance: row.significance,
+        date: row.date,
+      })
+    )
     .sort((a, b) => order(a.type) - order(b.type));
 }
 
@@ -797,7 +827,7 @@ export function formatContext(
       const body = data.insights
         .map(
           (i) =>
-            `[${i.type} — significance ${i.significance}]\n${i.content ?? ""}`
+            `[${i.type}${i.date !== localDate ? `, from ${i.date}` : ""} — significance ${i.significance}]\n${i.content ?? ""}`
         )
         .join("\n\n");
       volatile.push(

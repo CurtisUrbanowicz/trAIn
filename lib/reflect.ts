@@ -14,6 +14,7 @@ import { pushLog } from "@/lib/debugLog";
 import { REFLECT, ADAPTIVE_THINKING, REFLECT_EFFORT } from "@/lib/models";
 import { flagIncompleteStop, thinkingTokensFromEvent } from "@/lib/model-response";
 import { appendToolResultsWithCache } from "@/lib/cache-helpers";
+import { addUtcCalendarDays } from "@/lib/summarise";
 import {
   getLatestPatterns,
   isPatternsCurrent,
@@ -26,9 +27,19 @@ const MODEL = REFLECT;
 
 const MAX_ITERATIONS: Record<ReflectionType, number> = {
   pulse: 8,
-  deep: 20,
+  deep: 30,
   patterns: 15,
 };
+
+// Every cache breakpoint in a reflection pass. The pass is a burst of calls
+// seconds apart and nothing re-reads it afterwards, so the cheaper 5m write
+// covers every read (chat keeps 1h).
+const REFLECT_CACHE_TTL = "5m" as const;
+
+// Deep runs weekly: an insight dated within the last DEEP_CADENCE_DAYS days
+// (today included) counts as current, so the morning chain, the Coach
+// fallback and the route all skip the pass and serve that insight.
+export const DEEP_CADENCE_DAYS = 7;
 
 // Each pass ends with one output tool call: log_insight for pulse and deep,
 // write_patterns for the patterns document.
@@ -95,9 +106,23 @@ export async function getExistingInsight(
   localDate: string,
   type: InsightType
 ): Promise<InsightRow | null> {
+  if (type === "deep") {
+    // Weekly: the latest deep insight within the cadence window
+    const { data } = await supabase
+      .from("insights")
+      .select("id, type, content, significance, created_at, date")
+      .eq("athlete_id", athleteId)
+      .eq("type", "deep")
+      .gt("date", addUtcCalendarDays(localDate, -DEEP_CADENCE_DAYS))
+      .lte("date", localDate)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return (data as InsightRow | null) ?? null;
+  }
   const { data } = await supabase
     .from("insights")
-    .select("id, type, content, significance, created_at")
+    .select("id, type, content, significance, created_at, date")
     .eq("athlete_id", athleteId)
     .eq("date", localDate)
     .eq("type", type)
@@ -227,7 +252,7 @@ export async function runReflection(
       )
       .map((t, i, arr) =>
         i === arr.length - 1
-          ? { ...t, cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
+          ? { ...t, cache_control: { type: "ephemeral" as const, ttl: REFLECT_CACHE_TTL } }
           : t
       ) as Anthropic.Tool[];
 
@@ -251,6 +276,7 @@ export async function runReflection(
     // The output tool has been called and accepted
     let outputWritten = false;
     let lastUsage: Anthropic.Messages.Usage | null = null;
+    const totalUsage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
     // Per iteration, from the raw message_delta (the accumulator drops it)
     const thinkingTokensPerIteration: Array<number | null> = [];
     const maxIters = MAX_ITERATIONS[type];
@@ -282,12 +308,12 @@ export async function runReflection(
           model: MODEL,
           max_tokens: 16000,
           thinking: ADAPTIVE_THINKING,
-          output_config: { effort: REFLECT_EFFORT },
+          output_config: { effort: REFLECT_EFFORT[type] },
           system: [
             {
               type: "text",
               text: systemPrompt,
-              cache_control: { type: "ephemeral", ttl: "1h" },
+              cache_control: { type: "ephemeral", ttl: REFLECT_CACHE_TTL },
             },
           ],
           messages: apiMessages,
@@ -324,6 +350,10 @@ export async function runReflection(
       });
 
       lastUsage = finalMsg.usage;
+      totalUsage.input += finalMsg.usage.input_tokens;
+      totalUsage.output += finalMsg.usage.output_tokens;
+      totalUsage.cacheWrite += finalMsg.usage.cache_creation_input_tokens ?? 0;
+      totalUsage.cacheRead += finalMsg.usage.cache_read_input_tokens ?? 0;
       thinkingTokensPerIteration.push(thinkingTokens);
       flagIncompleteStop("reflect", finalMsg, { type, iteration: iterations });
 
@@ -394,7 +424,7 @@ export async function runReflection(
         })
       );
 
-      appendToolResultsWithCache(apiMessages, toolResults);
+      appendToolResultsWithCache(apiMessages, toolResults, REFLECT_CACHE_TTL);
 
       if (outputWritten && !reviewsProfile) break;
       // The document just landed: hand over to the profile review, unless
@@ -413,16 +443,27 @@ export async function runReflection(
 
     if (lastUsage) {
       pushLog("cache_usage", {
-        input_tokens: lastUsage.input_tokens,
+        // Pass totals, summed over every call — the cost of the pass
+        tab: `reflect-${type}`,
+        type,
+        calls: thinkingTokensPerIteration.length,
+        input_tokens: totalUsage.input,
         // output_tokens includes thinking tokens
-        output_tokens: lastUsage.output_tokens,
+        output_tokens: totalUsage.output,
+        cache_write: totalUsage.cacheWrite,
+        cache_read: totalUsage.cacheRead,
         thinking_tokens: thinkingTokensPerIteration,
         thinking_tokens_total: thinkingTokensPerIteration.reduce<number>(
           (acc, n) => acc + (n ?? 0),
           0
         ),
-        cache_write: lastUsage.cache_creation_input_tokens,
-        cache_read: lastUsage.cache_read_input_tokens,
+        // The last call alone: how large the prompt grew by the end
+        last_call: {
+          input_tokens: lastUsage.input_tokens,
+          output_tokens: lastUsage.output_tokens,
+          cache_write: lastUsage.cache_creation_input_tokens,
+          cache_read: lastUsage.cache_read_input_tokens,
+        },
       });
     }
 

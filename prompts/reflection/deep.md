@@ -9,7 +9,7 @@ The interesting stuff lives in:
 - Behavioral patterns — how they make decisions, when they push back, what they negotiate mid-session, how plan and execution drift apart
 - Comparisons and ratios, not just single trends — "X is Y" is often thinner than "X is Y but Z is W"
 
-Real investigation, not a glance. Expect 5-15 tool calls. Summaries help you see recent context — raw tables are where patterns actually live. Form a hypothesis worth testing, pull data across weeks or months to test it, revise or try another angle. Don't surface what you haven't verified.
+This runs once a week, so make it count. Real investigation, not a glance. Expect 10-25 tool calls: test more than one hypothesis, pull across weeks and months, and check each candidate against a second angle before you commit. Summaries help you see recent context — raw tables are where patterns actually live. Form a hypothesis worth testing, pull data across weeks or months to test it, revise or try another angle. Don't surface what you haven't verified.
 
 You'll see prior insights in context. Don't restate — build on, age, or disprove.
 

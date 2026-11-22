@@ -23,7 +23,8 @@ import { patternsDue } from "./patterns";
  *   1. readiness for the wake date (reuses the sync logic; the wake date
  *      comes from Whoop's own timezone offset — nothing else is a clock)
  *   2. yesterday's daily summary if missing
- *   3. pulse and deep reflections for the wake date if missing, and the
+ *   3. the pulse reflection for the wake date if missing, the deep
+ *      reflection if none is dated within the last 7 days (weekly), and the
  *      weekly patterns pass when due — all three in parallel. The patterns
  *      pass ends with a review of the athlete profile, logged as its own
  *      profile step

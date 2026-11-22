@@ -27,9 +27,13 @@ export function historyWithLastAssistantCached(
   return out;
 }
 
+// ttl: chat keeps the default 1h (re-read across turns minutes apart);
+// reflection passes 5m — every re-read lands within one sub-minute pass, and
+// a 5m write costs 1.25x base input against 2x for 1h
 export function appendToolResultsWithCache(
   apiMessages: Anthropic.MessageParam[],
-  toolResults: Anthropic.Messages.ToolResultBlockParam[]
+  toolResults: Anthropic.Messages.ToolResultBlockParam[],
+  ttl: "5m" | "1h" = "1h"
 ): void {
   if (toolResults.length === 0) return;
 
@@ -50,7 +54,7 @@ export function appendToolResultsWithCache(
     last as Anthropic.Messages.ToolResultBlockParam & {
       cache_control?: Anthropic.CacheControlEphemeral;
     }
-  ).cache_control = EPHEMERAL_1H;
+  ).cache_control = ttl === "1h" ? EPHEMERAL_1H : { type: "ephemeral", ttl: "5m" };
 
   apiMessages.push({ role: "user", content: toolResults });
 }

@@ -224,7 +224,8 @@ export async function buildDeepContext(
     loadReflectionSystemPrompt("deep"),
     getAthleteProfile(athleteId),
     getRecentInsights(athleteId, "deep", 5),
-    getRecentSummaries(athleteId, localDate, 7),
+    // Deep is weekly: two weeks of summaries span the gap since the last run
+    getRecentSummaries(athleteId, localDate, 14),
     getContextIndexCounts(athleteId),
     getLatestPatterns(athleteId),
     getTrainingState(athleteId, localDate),

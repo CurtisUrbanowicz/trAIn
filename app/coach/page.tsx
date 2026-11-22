@@ -16,7 +16,21 @@ type Insight = {
   id: string;
   content: string;
   significance: number;
+  // YYYY-MM-DD the pass ran for; deep runs weekly, so it can predate today
+  date?: string;
 };
+
+// "today", "yesterday", "3 days ago" — calendar days from today's local date
+function daysAgoLabel(date: string): string {
+  const toUtc = (ymd: string) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return Date.UTC(y!, m! - 1, d!);
+  };
+  const days = Math.round((toUtc(getLocalDate()) - toUtc(date)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
 
 type ReflectionCard = {
   status: "idle" | "loading" | "streaming" | "done" | "error" | "cached";
@@ -198,7 +212,7 @@ export default function CoachPage() {
     void (async () => {
       const { data: existing } = await supabase
         .from("insights")
-        .select("id, type, content, significance")
+        .select("id, type, content, significance, date")
         .eq("athlete_id", ATHLETE_ID)
         .eq("date", localDate)
         .in("type", ["pulse", "deep"]);
@@ -209,11 +223,13 @@ export default function CoachPage() {
         type: ReflectionType;
         content: string;
         significance: number;
+        date: string;
       }>) {
         byType.set(row.type, {
           id: row.id,
           content: row.content,
           significance: row.significance,
+          date: row.date,
         });
       }
 
@@ -295,6 +311,12 @@ function ReflectionCardView({
           }}
         >
           {label}
+          {card.insight?.date && (
+            <span style={{ textTransform: "none", letterSpacing: 0 }}>
+              {" · "}
+              {daysAgoLabel(card.insight.date)}
+            </span>
+          )}
         </span>
         {card.insight && (
           <span

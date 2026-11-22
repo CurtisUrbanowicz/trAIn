@@ -28,5 +28,10 @@ export const CHAT_EFFORT: Record<TabType, Effort> = {
   season: "medium",
   coach: "medium",
 };
-export const REFLECT_EFFORT: Effort = "medium";
+// Deep runs weekly and goes deeper: high effort, against medium elsewhere
+export const REFLECT_EFFORT: Record<"pulse" | "deep" | "patterns", Effort> = {
+  pulse: "medium",
+  deep: "high",
+  patterns: "medium",
+};
 export const SUMMARISE_EFFORT: Effort = "medium";
